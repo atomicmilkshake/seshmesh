@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Casr.Core\Casr.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>casr.ico</ApplicationIcon>
+    <AssemblyTitle>SeshMesh — Cross-Agent Session Resumer</AssemblyTitle>
+    <AssemblyDescription>Resume conversations across AI coding agents</AssemblyDescription>
+    <Copyright>2026</Copyright>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Copy casr.ico next to the exe; the native Windows icon comes from <ApplicationIcon>.
+         WPF's Window.Icon packaged-resource lookup is intentionally not used: the .NET archive
+         does not embed bare files in the net8.0-windows WPF binary format, which used to crash startup. -->
+    <None Include="casr.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

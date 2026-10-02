@@ -1,0 +1,1628 @@
+<Window x:Class="Casr.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:Casr.App.ViewModels"
+        xmlns:converters="clr-namespace:Casr.App.Converters"
+        xmlns:services="clr-namespace:Casr.Core.Services;assembly=Casr.Core"
+        mc:Ignorable="d"
+        Title="SeshMesh — Cross-Agent Session Resumer"
+        Height="540" Width="1180" MinHeight="480" MinWidth="1020"
+        WindowStartupLocation="CenterScreen"
+        TextOptions.TextFormattingMode="Display"
+        RenderOptions.ClearTypeHint="Enabled"
+        FontFamily="Segoe UI Variable Text, Segoe UI, -apple-system, sans-serif"
+        Background="{DynamicResource ThemeBgBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}">
+
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Control" Key="F" Command="{Binding FocusSearchCommand}"/>
+        <KeyBinding Key="Escape" Command="{Binding ClearSearchCommand}"/>
+    </Window.InputBindings>
+
+    <Window.Resources>
+        <converters:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
+        <converters:OnColorTextBrushConverter x:Key="OnColorTextBrushConverter"/>
+        <converters:ProviderToBadgeBrushConverter x:Key="ProviderToBadgeBrushConverter"/>
+        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+        <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <converters:MatchSnippetConverter x:Key="MatchSnippetConverter"/>
+        <converters:RelativeTimeConverter x:Key="RelativeTimeConverter"/>
+
+        <Style x:Key="SurfaceTabRadioStyle" TargetType="RadioButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="TabBorder" Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource ThemeCardBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeHighlightBrush}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern Slim Dark ScrollBar Style -->
+        <Style x:Key="ScrollThumbs" TargetType="{x:Type Thumb}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Thumb}">
+                        <Border x:Name="ThumbBorder" Background="{DynamicResource ThemeBorderBrush}" CornerRadius="4" Margin="1"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="true">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="true">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource ThemeHighlightBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ScrollBar}">
+            <Setter Property="Stylus.IsFlicksEnabled" Value="false"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollBar}">
+                        <Grid x:Name="GridRoot" Width="8" Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="true">
+                                <Track.Thumb>
+                                    <Thumb Style="{DynamicResource ScrollThumbs}"/>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto"/>
+                    <Setter Property="Height" Value="8"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                <Grid x:Name="GridRoot" Height="8" Background="Transparent">
+                                    <Track x:Name="PART_Track" IsDirectionReversed="false">
+                                        <Track.Thumb>
+                                            <Thumb Style="{DynamicResource ScrollThumbs}"/>
+                                        </Track.Thumb>
+                                    </Track>
+                                </Grid>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Modern Button Styles -->
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ThemeAccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeAccentTextBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="11,4"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="BtnBorder" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="BtnBorder" Property="Background" Value="{DynamicResource ThemeAccentHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="BtnBorder" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ThemeCardBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="9,3"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="SecBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SecBorder" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                                <Setter TargetName="SecBorder" Property="BorderBrush" Value="{DynamicResource ThemeHighlightBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SecBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SecondaryToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="{DynamicResource ThemeCardBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="TogBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TogBorder" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="TogBorder" Property="Background" Value="{DynamicResource ThemeAccentBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeAccentTextBrush}"/>
+                                <Setter TargetName="TogBorder" Property="BorderBrush" Value="{DynamicResource ThemeHighlightBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="TogBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Shared themed submenu popup (used by both menu styles) -->
+        <ControlTemplate x:Key="ThemedSubmenuPopupTemplate" TargetType="Popup">
+            <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                    BorderThickness="1" CornerRadius="6" Padding="5" Margin="4,0,0,0">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="14" Direction="270" ShadowDepth="4" Opacity="0.45"/>
+                </Border.Effect>
+                <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+            </Border>
+        </ControlTemplate>
+
+        <!-- Top-level context-menu item: full template so stock WPF chrome (white icon band) never bleeds through -->
+        <Style x:Key="CtxMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Grid>
+                            <Border x:Name="RootBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" Margin="1" CornerRadius="4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter Grid.Column="0" ContentSource="Header" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SubmenuArrow" Grid.Column="1" Text="▸" Margin="10,0,0,0"
+                                               Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center"
+                                               Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <Popup x:Name="PART_Popup" IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                                   Placement="Right" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade"
+                                   VerticalOffset="-6" HorizontalOffset="-2">
+                                <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="5">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="14" Direction="270" ShadowDepth="4" Opacity="0.45"/>
+                                    </Border.Effect>
+                                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                            <Trigger Property="MenuItem.Role" Value="SubmenuHeader">
+                                <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Resume-With submenu item (card look) -->
+        <Style x:Key="ModernMenuButtonStyle" TargetType="MenuItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="RootBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" Margin="1" CornerRadius="4">
+                            <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Parent item hosting the Resume-With flyout: themed popup flying out to the right with chevron -->
+        <Style x:Key="ResumeWithParentStyle" TargetType="MenuItem" BasedOn="{StaticResource CtxMenuItemStyle}">
+            <Setter Property="ToolTip" Value="Codex can resume its own native sessions. Cross-resume to Codex opens a new session; external history import is unavailable."/>
+        </Style>
+
+        <!-- Themed ContextMenu chrome: rounded border + drop shadow (kills flat gray system border) -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource ThemeSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="4">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="16" Direction="270" ShadowDepth="4" Opacity="0.5"/>
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Implicit MenuItem style now uses the themed template (no stock chrome) -->
+        <Style TargetType="MenuItem" BasedOn="{StaticResource CtxMenuItemStyle}"/>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="RowBackground" Value="{DynamicResource ThemeCardAltBrush}"/>
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource ThemeBgBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="RowHeight" Value="32"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource ThemeSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style TargetType="DataGridRow">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <!-- Hover first so selection always wins; the MultiTrigger keeps the
+                     selected look (not the hover wash) when the pointer is over it. -->
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeSelectionHoverBrush}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ThemeSelectionBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeAccentTextBrush}"/>
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsSelected" Value="True"/>
+                        <Condition Property="IsMouseOver" Value="True"/>
+                    </MultiTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource ThemeSelectionBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource ThemeAccentTextBrush}"/>
+                </MultiTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="AgentMenuItemStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Top App Bar -->
+            <RowDefinition Height="42"/>
+            <!-- Filter & Search Toolbar -->
+            <RowDefinition Height="44"/>
+            <!-- Main Content Area -->
+            <RowDefinition Height="*"/>
+            <!-- Bottom Status Bar -->
+            <RowDefinition Height="24"/>
+        </Grid.RowDefinitions>
+
+        <!-- TOP APP BAR -->
+        <Border Grid.Row="0" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1" Padding="12,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Brand Title -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="⚡" FontSize="16" Margin="0,0,7,0" Foreground="{DynamicResource ThemeHighlightBrush}"/>
+                    <TextBlock Text="SeshMesh" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource ThemeTextPrimaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text="Cross-Agent Session Resumer" FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="7,2,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Right Controls: Theme picker, Terminal selector, Providers, Refresh, Logs -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Theme Picker -->
+                    <TextBlock Text="🎨 Theme:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11"/>
+                    <ComboBox ItemsSource="{Binding AvailableThemes}" SelectedItem="{Binding SelectedTheme}" Width="142" Height="25" Margin="0,0,8,0"
+                              Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                              ToolTip="Switch application color scheme"/>
+
+                    <TextBlock Text="Terminal:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11"/>
+                    <ComboBox SelectedValue="{Binding SelectedTerminal}" SelectedValuePath="Tag" Width="146" Height="25" Margin="0,0,7,0"
+                              Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}">
+                        <ComboBoxItem Content="Windows Terminal (wt)" Tag="{x:Static services:TerminalType.WindowsTerminal}" IsSelected="True"/>
+                        <ComboBoxItem Content="Alacritty" Tag="{x:Static services:TerminalType.Alacritty}"/>
+                        <ComboBoxItem Content="WezTerm" Tag="{x:Static services:TerminalType.WezTerm}"/>
+                        <ComboBoxItem Content="noctty" Tag="{x:Static services:TerminalType.Noctty}"/>
+                        <ComboBoxItem Content="PowerShell 7 (pwsh)" Tag="{x:Static services:TerminalType.PowerShell7}"/>
+                        <ComboBoxItem Content="Windows PowerShell" Tag="{x:Static services:TerminalType.WindowsPowerShell}"/>
+                        <ComboBoxItem Content="Command Prompt (cmd)" Tag="{x:Static services:TerminalType.CommandPrompt}"/>
+                    </ComboBox>
+
+                    <!-- Launch modifiers: elevation, and per-harness approval bypass. Both default off. -->
+                    <Border Margin="0,0,7,0" Padding="7,1" CornerRadius="4"
+                            Background="{DynamicResource ThemeCardAltBrush}"
+                            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox IsChecked="{Binding RunAsAdmin, Mode=TwoWay}"
+                                      VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                      Foreground="{DynamicResource ThemeTextPrimaryBrush}"
+                                      ToolTip="{Binding LaunchPrivilegesHint}">
+                                <TextBlock Text="🛡 Admin" FontSize="11" FontWeight="SemiBold" Margin="5,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </CheckBox>
+                            <CheckBox IsChecked="{Binding BypassApprovals, Mode=TwoWay}"
+                                      Margin="10,0,0,0"
+                                      VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                      Foreground="{DynamicResource ThemeTextPrimaryBrush}"
+                                      ToolTip="{Binding BypassApprovalsHint}">
+                                <TextBlock Text="Skip approvals" FontSize="11" FontWeight="SemiBold" Margin="5,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </CheckBox>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Providers Toggle Button & Dropdown Popup -->
+                    <ToggleButton x:Name="BtnProvidersToggle" Style="{StaticResource SecondaryToggleButtonStyle}" Height="26" Padding="8,2" Margin="0,0,6,0" ToolTip="Enable or disable agent providers">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙ Providers" FontWeight="SemiBold"/>
+                            <TextBlock Text=" ▾" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="4,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=BtnProvidersToggle, Mode=TwoWay}"
+                           PlacementTarget="{Binding ElementName=BtnProvidersToggle}"
+                           Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,4,0,0">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" Direction="270" ShadowDepth="4" Opacity="0.5"/>
+                            </Border.Effect>
+                            <StackPanel Width="270">
+                                <TextBlock Text="Coding Agent Providers" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource ThemeTextPrimaryBrush}" Margin="0,0,0,4"/>
+                                <TextBlock Text="Toggle which agents are scanned and indexed:" FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                                <ItemsControl ItemsSource="{Binding ProviderToggles}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay}" Margin="0,4" Foreground="{DynamicResource ThemeTextPrimaryBrush}" VerticalContentAlignment="Center">
+                                                <Grid Margin="6,0,0,0" Width="220">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12"/>
+                                                        <TextBlock Text="{Binding CliAlias, StringFormat=' ({0})'}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                    </StackPanel>
+                                                    <Border Grid.Column="1" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeHighlightBrush}" BorderThickness="1" CornerRadius="2" Padding="4,1"
+                                                            Visibility="{Binding IsInstalled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <TextBlock Text="Found" Foreground="{DynamicResource ThemeHighlightBrush}" FontSize="9.5" FontWeight="SemiBold"/>
+                                                    </Border>
+                                                </Grid>
+                                             </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Separator Background="{DynamicResource ThemeBorderBrush}" Margin="0,10,0,8"/>
+                                <TextBlock Text="Session Visibility" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource ThemeTextPrimaryBrush}" Margin="0,0,0,4"/>
+                                <CheckBox IsChecked="{Binding IncludeSubagents, Mode=TwoWay}" Margin="0,4" Foreground="{DynamicResource ThemeTextPrimaryBrush}" VerticalContentAlignment="Center">
+                                    <StackPanel Margin="6,0,0,0">
+                                        <TextBlock Text="Show subagents &amp; skill runs" FontWeight="SemiBold" FontSize="12"/>
+                                        <TextBlock Text="Include internal subagents, tasks, and skill audits" FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                    </StackPanel>
+                                </CheckBox>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+
+                    <Button Command="{Binding RefreshCommand}" Style="{StaticResource SecondaryButton}" Height="26" Padding="10,2" Margin="0,0,6,0"
+                            ToolTip="Rescan all active agent providers for new conversations">
+                        <StackPanel Orientation="Horizontal">
+                            <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="12" Height="12" Margin="0,0,6,0"
+                                            Visibility="{Binding IsScanOrIndexing, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                            <TextBlock Text="🔄" Margin="0,0,6,0"
+                                       Visibility="{Binding IsScanOrIndexing, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=invert}"/>
+                            <TextBlock Text="{Binding ScanButtonLabel}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Command="{Binding OpenBackupCommand}" Style="{StaticResource SecondaryButton}" Height="26" Padding="10,2" Margin="0,0,6,0" ToolTip="Backup, snapshot, and restore agent conversations and skills">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="💾" Margin="0,0,6,0"/>
+                            <TextBlock Text="Backup &amp; Restore"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Command="{Binding OpenLogFileCommand}" Style="{StaticResource SecondaryButton}" Height="26" Padding="8,2" ToolTip="Open the SeshMesh debug log in the default editor">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📜" Margin="0,0,4,0"/>
+                            <TextBlock Text="Logs"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <!-- Top-Level Global Non-Blocking Progress Bar -->
+                <ProgressBar Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Bottom" Height="3" Margin="-12,0,-12,0"
+                             Style="{StaticResource SlimProgressBarStyle}"
+                             Foreground="{DynamicResource ThemeHighlightBrush}"
+                             Background="Transparent"
+                             IsIndeterminate="{Binding IsIndeterminateProgress}"
+                             Value="{Binding OperationProgressPercent, Mode=OneWay}"
+                             Minimum="0" Maximum="100"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            </Grid>
+        </Border>
+
+        <!-- FILTER & SEARCH TOOLBAR -->
+        <Border Grid.Row="1" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1" Padding="10,5">
+            <StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <!-- Search Input -->
+                    <ColumnDefinition Width="245"/>
+                    <!-- Content Search Toggle -->
+                    <ColumnDefinition Width="Auto"/>
+                    <!-- Subagents Toggle -->
+                    <ColumnDefinition Width="Auto"/>
+                    <!-- Separator -->
+                    <ColumnDefinition Width="10"/>
+                    <!-- Provider Filter -->
+                    <ColumnDefinition Width="115"/>
+                    <!-- Workspace Filter -->
+                    <ColumnDefinition Width="150"/>
+                    <!-- Date Filter -->
+                    <ColumnDefinition Width="105"/>
+                    <!-- Search summary -->
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Search box -->
+                <Border Grid.Column="0" Background="{DynamicResource ThemeCardAltBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="6,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="🔍" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                        <TextBox x:Name="SearchTextBox" Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Background="Transparent" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderThickness="0"
+                                 VerticalAlignment="Center" FontSize="12" Padding="2"
+                                 CaretBrush="{DynamicResource ThemeTextPrimaryBrush}"
+                                 AutomationProperties.Name="Search conversations and transcripts"
+                                 ToolTip="Search conversations &amp; transcripts across agents (Ctrl+F to focus, Esc to clear)"/>
+                        <Button Grid.Column="2" Command="{Binding ClearSearchCommand}"
+                                Visibility="{Binding HasSearchText, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                Background="Transparent" BorderThickness="0" Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                                Cursor="Hand" Padding="2,0" Margin="2,0,2,0" VerticalAlignment="Center"
+                                ToolTip="Clear search (Esc)" AutomationProperties.Name="Clear search query">
+                            <TextBlock Text="✕" FontSize="11"/>
+                        </Button>
+                        <ContentControl Grid.Column="3" Style="{StaticResource LoadingSpinnerStyle}" Width="13" Height="13" Margin="4,0,2,0"
+                                        Visibility="{Binding IsSearching, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        ToolTip="Deep search in progress — engine and timing appear in the summary at right..."/>
+                    </Grid>
+                </Border>
+
+                <!-- Deep Content FTS Toggle -->
+                <ToggleButton Grid.Column="1" IsChecked="{Binding IsContentSearchEnabled}"
+                              Style="{StaticResource SecondaryToggleButtonStyle}"
+                              Margin="8,0,0,0" Padding="8,4"
+                              ToolTip="Search within full conversation messages using local SQLite FTS5 index">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📑 Deep Content (FTS5)" FontSize="11" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </ToggleButton>
+
+                <!-- Subagents Toggle -->
+                <ToggleButton Grid.Column="2" IsChecked="{Binding IncludeSubagents, Mode=TwoWay}"
+                              Style="{StaticResource SecondaryToggleButtonStyle}"
+                              Margin="6,0,0,0" Padding="8,4"
+                              ToolTip="Toggle visibility of internal subagents, task definitions, and skill prompt runs">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="👥 Subagents" FontSize="11" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </ToggleButton>
+
+                <!-- Provider filter combobox -->
+                <ComboBox Grid.Column="4" ItemsSource="{Binding AvailableProviders}" SelectedItem="{Binding SelectedProviderFilter}"
+                          Height="26" Margin="0,0,7,0" Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                          AutomationProperties.Name="Provider filter"/>
+
+                <!-- Workspace filter combobox -->
+                <ComboBox Grid.Column="5" ItemsSource="{Binding AvailableWorkspaces}" SelectedItem="{Binding SelectedWorkspaceFilter}"
+                          Height="26" Margin="0,0,7,0" Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                          AutomationProperties.Name="Workspace filter"/>
+
+                <!-- Date filter combobox: SelectedValuePath=Content keeps the bound
+                     string in sync — SelectedItem would hand the VM a ComboBoxItem
+                     and the date predicate would never match (dead filter). -->
+                <ComboBox Grid.Column="6" SelectedValue="{Binding SelectedDateFilter}" SelectedValuePath="Content" Height="26" Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                          AutomationProperties.Name="Date filter">
+                    <ComboBoxItem Content="All Time" IsSelected="True"/>
+                    <ComboBoxItem Content="Today"/>
+                    <ComboBoxItem Content="Past 7 Days"/>
+                    <ComboBoxItem Content="Past 30 Days"/>
+                </ComboBox>
+
+                <!-- Search summary info -->
+                <TextBlock Grid.Column="7" Text="{Binding SearchSummary}" Foreground="{DynamicResource ThemeHighlightBrush}" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="10.5" TextTrimming="CharacterEllipsis"/>
+            </Grid>
+
+            <!-- Deep-search engine area: visible only when Deep Content is on -->
+            <StackPanel Margin="0,5,0,0"
+                        Visibility="{Binding IsContentSearchEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="130"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Engine:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" FontSize="11" Margin="0,0,6,0"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableSearchModes}" SelectedItem="{Binding SelectedSearchMode}"
+                          Height="24" Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                          ToolTip="{Binding EngineTooltip}"
+                          AutomationProperties.Name="Deep search engine">
+                    <!-- "Keyword+" needs backend SearchFtsRaw: disable just that item until it exists -->
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem">
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Content, RelativeSource={RelativeSource Self}}" Value="Keyword+"/>
+                                        <Condition Binding="{Binding DataContext.IsRawFtsAvailable, RelativeSource={RelativeSource AncestorType=ComboBox}}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                    <Setter Property="ToolTip" Value="{Binding DataContext.RawFtsDisabledReason, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
+                <CheckBox Grid.Column="2" IsChecked="{Binding SearchCaseSensitive}" Content="Case sensitive"
+                          Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalContentAlignment="Center" Margin="10,0,0,0" FontSize="11"
+                          ToolTip="Applies to Exact and Regex engines"/>
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="10,0,0,0">
+                    <Button Command="{Binding RebuildContentIndexCommand}" Style="{StaticResource SecondaryButton}" Height="24" Padding="10,0"
+                            ToolTip="{Binding IndexButtonTooltip}">
+                        <TextBlock Text="{Binding IndexButtonLabel}" FontSize="11"/>
+                    </Button>
+                    <Button Command="{Binding ExportSearchResultsCommand}" Style="{StaticResource SecondaryButton}" Height="24" Padding="10,0" Margin="6,0,0,0"
+                            ToolTip="Export the current search results as a Markdown report with per-session evidence (title, badge, snippet, matched terms)">
+                        <TextBlock Text="📄 Export results" FontSize="11"/>
+                    </Button>
+                </StackPanel>
+                <TextBlock Grid.Column="5" Text="{Binding IndexCoverageText}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="10.5" TextTrimming="CharacterEllipsis"
+                           ToolTip="How many conversations have transcripts + vectors in the local database"/>
+            </Grid>
+
+            <!-- Saved searches + history row: same engine area, second line to avoid clipping at MinWidth -->
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="150"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Saved:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" FontSize="11" Margin="0,0,6,0"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding SavedSearchNames}" SelectedItem="{Binding SelectedSavedSearchName}"
+                          Height="24" Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                          ToolTip="Apply a saved search (query, engine, filters)"
+                          AutomationProperties.Name="Saved searches"/>
+                <TextBox Grid.Column="2" Text="{Binding NewSavedSearchName, UpdateSourceTrigger=PropertyChanged}"
+                         Height="24" Margin="6,0,0,0" VerticalContentAlignment="Center"
+                         Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                         CaretBrush="{DynamicResource ThemeTextPrimaryBrush}" FontSize="11" Padding="6,0"
+                         ToolTip="Name for the Save button — saves the current query, engine and filters"/>
+                <Button Grid.Column="3" Command="{Binding SaveCurrentSearchCommand}" Style="{StaticResource SecondaryButton}" Height="24" Padding="10,0" Margin="6,0,0,0"
+                        ToolTip="Save the current search under the typed name">
+                    <TextBlock Text="💾 Save" FontSize="11"/>
+                </Button>
+                <Button Grid.Column="4" Command="{Binding DeleteSavedSearchCommand}" Style="{StaticResource SecondaryButton}" Height="24" Padding="10,0" Margin="6,0,0,0"
+                        ToolTip="Delete the selected saved search">
+                    <TextBlock Text="🗑 Delete" FontSize="11"/>
+                </Button>
+                <TextBlock Grid.Column="5" Text="History:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" FontSize="11" Margin="10,0,6,0"/>
+                <ComboBox Grid.Column="6" ItemsSource="{Binding HistoryEntries}" DisplayMemberPath="Query" SelectedItem="{Binding SelectedHistoryEntry}"
+                          Height="24" Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                          ToolTip="Last 20 searches, newest first — picking one re-runs it"
+                          AutomationProperties.Name="Search history"/>
+                <TextBlock Grid.Column="7" Text="Save names the current query + filters · history keeps the last 20" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="10.5" TextTrimming="CharacterEllipsis"/>
+            </Grid>
+            </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- MAIN CONTENT AREA: Left DataGrid, Right Inspector -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <!-- Left: Sessions Table -->
+                <ColumnDefinition Width="13*" MinWidth="380"/>
+                <!-- Splitter -->
+                <ColumnDefinition Width="5"/>
+                <!-- Right: Inspector -->
+                <ColumnDefinition Width="7*" MinWidth="310"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT: DUAL-SURFACE CONTAINER (Conversations vs Search Results) -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <!-- Surface Tab Header -->
+                    <RowDefinition Height="34"/>
+                    <!-- Active Surface Content -->
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Surface Navigation Tabs -->
+                <Border Grid.Row="0" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4,8,4">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Tab 1: Conversations (Library) -->
+                        <RadioButton Grid.Column="0" GroupName="SurfaceTabs"
+                                     IsChecked="{Binding IsConversationsSurfaceActive, Mode=TwoWay}"
+                                     Style="{StaticResource SurfaceTabRadioStyle}"
+                                     ToolTip="Browse all conversations in your library">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="💬 Conversations" FontWeight="SemiBold" FontSize="11.5"/>
+                                <Border Background="{DynamicResource ThemeCardAltBrush}" CornerRadius="8" Padding="6,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ConversationsCountText}" FontSize="10" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                </Border>
+                            </StackPanel>
+                        </RadioButton>
+
+                        <!-- Tab 2: Search Results -->
+                        <RadioButton Grid.Column="1" GroupName="SurfaceTabs"
+                                     IsChecked="{Binding IsSearchResultsSurfaceActive, Mode=TwoWay}"
+                                     Style="{StaticResource SurfaceTabRadioStyle}" Margin="6,0,0,0"
+                                     ToolTip="View ranking and match excerpts across all searched transcripts">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="🔍 Search Results" FontWeight="SemiBold" FontSize="11.5"/>
+                                <Border Background="{DynamicResource ThemeHighlightBrush}" CornerRadius="8" Padding="6,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                        Visibility="{Binding HasSearchResultsCount, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding SearchResultsCountText}" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource ThemeAccentTextBrush}"/>
+                                </Border>
+                            </StackPanel>
+                        </RadioButton>
+
+                        <!-- Shortcut hints -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
+                            <TextBlock Text="Ctrl+F search · Esc clear" FontSize="10.5" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Active Surface Views -->
+                <Grid Grid.Row="1">
+                    <!-- SURFACE 1: Conversations Library -->
+                    <Grid Visibility="{Binding IsConversationsSurfaceActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <!-- SESSIONS DATAGRID -->
+                        <DataGrid ItemsSource="{Binding SessionsView}" SelectedItem="{Binding SelectedSession}"
+                                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  CanUserReorderColumns="True" CanUserResizeColumns="True" CanUserSortColumns="True"
+                                  IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
+                                  AutomationProperties.Name="Agent session list"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick">
+                            <DataGrid.ContextMenu>
+                                <ContextMenu Background="{DynamicResource ThemeSurfaceBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}"
+                                             DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                    <MenuItem Header="🚀 Resume Session Immediately" Command="{Binding ResumeCommand}"/>
+                                    <MenuItem Header="⚡ Resume With..." Style="{StaticResource ResumeWithParentStyle}"
+                                              IsEnabled="{Binding HasSelectedSession}">
+                                        <MenuItem Header="Antigravity (Google)" Command="{Binding ResumeWithCommand}" CommandParameter="antigravity" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Codex (OpenAI)" Command="{Binding ResumeWithCommand}" CommandParameter="codex" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Grok Build (xAI)" Command="{Binding ResumeWithCommand}" CommandParameter="grok" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="OpenClaude (@gitlawb)" Command="{Binding ResumeWithCommand}" CommandParameter="openclaude" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Cursor (Anysphere) ⚠" Command="{Binding ResumeWithCommand}" CommandParameter="cursor" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Pi (Earendil Works)" Command="{Binding ResumeWithCommand}" CommandParameter="pi" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Hermes (Earendil Works)" Command="{Binding ResumeWithCommand}" CommandParameter="hermes" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="OpenCode (opencode-ai)" Command="{Binding ResumeWithCommand}" CommandParameter="opencode" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                    </MenuItem>
+                                    <Separator Background="{DynamicResource ThemeBorderBrush}" Margin="6,3"/>
+                                    <MenuItem Header="📋 Copy Resume CLI Command" Command="{Binding CopyCommandCommand}"/>
+                                    <MenuItem Header="💾 Export Session..." Command="{Binding ExportSessionCommand}"/>
+                                    <MenuItem Header="📁 Open Workspace Folder in Explorer" Command="{Binding OpenFolderCommand}"/>
+                                    <MenuItem Header="💻 Open Workspace in VS Code" Command="{Binding OpenInEditorCommand}"/>
+                                    <Separator Background="{DynamicResource ThemeBorderBrush}" Margin="6,3"/>
+                                    <MenuItem Header="🔄 Refresh List" Command="{Binding RefreshCommand}"/>
+                                </ContextMenu>
+                            </DataGrid.ContextMenu>
+
+                            <DataGrid.Columns>
+                                <!-- Provider Column -->
+                                <DataGridTemplateColumn Header="Provider" Width="100" SortMemberPath="Provider">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{Binding Provider, Converter={StaticResource ProviderToBadgeBrushConverter}}"
+                                                    CornerRadius="4" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0">
+                                                <TextBlock Text="{Binding ProviderDisplayName}" Foreground="{Binding Converter={StaticResource OnColorTextBrushConverter}}" FontWeight="SemiBold" FontSize="11"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Date Column (Default Sort) -->
+                                <DataGridTextColumn Header="Date / Last Active" Binding="{Binding DisplayDate}" Width="125" SortMemberPath="RecencyDate">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Margin" Value="6,0,0,0"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                            <Setter Property="ToolTip" Value="{Binding RecencyDate, Converter={StaticResource RelativeTimeConverter}, StringFormat='Last active: {0}'}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Title / Topic Column -->
+                                <DataGridTemplateColumn Header="Conversation Title / Topic" Width="*" SortMemberPath="Title">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0">
+                                                <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1"
+                                                        CornerRadius="3" Padding="5,1" Margin="0,0,6,0"
+                                                        Visibility="{Binding IsSubagent, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Text="subagent" Foreground="{DynamicResource ThemeHighlightBrush}" FontSize="9.5" FontWeight="SemiBold"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding TitleDisplay}" VerticalAlignment="Center"
+                                                           FontWeight="SemiBold" Foreground="{DynamicResource ThemeTextPrimaryBrush}" TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding TitleDisplay}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Workspace Column -->
+                                <DataGridTemplateColumn Header="Workspace" Width="145" SortMemberPath="Workspace">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0">
+                                                <TextBlock Text="📁 " FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                                                           Visibility="{Binding Workspace, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                <TextBlock Text="{Binding WorkspaceDisplay}" Foreground="{DynamicResource ThemeHighlightBrush}" TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding WorkspaceDisplay}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Turns / Messages -->
+                                <DataGridTextColumn Header="Turns" Binding="{Binding TurnsDisplay}" Width="120" SortMemberPath="DisplayedMessageCount">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Tool Invocations -->
+                                <DataGridTextColumn Header="Tools" Binding="{Binding ToolCallsCount}" Width="50" SortMemberPath="ToolCallsCount">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- File Size -->
+                                <DataGridTextColumn Header="Size" Binding="{Binding FileSizeDisplay}" Width="65" SortMemberPath="FileSizeBytes">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Right"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Margin" Value="0,0,8,0"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Session ID -->
+                                <DataGridTemplateColumn Header="Session ID" Width="100" SortMemberPath="SessionId">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding SessionId}" FontFamily="Consolas" FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="6,0" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding SessionId}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- Initial Discovery / Empty Scan State Card -->
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}"
+                                Opacity="0.95"
+                                Visibility="{Binding IsEmptyScanState, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="36" Height="36" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                                <TextBlock Text="Discovering AI Coding Agent Sessions..." FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Scanning Antigravity, Codex, Grok, Cursor, Pi, Hermes, OpenCode, OpenClaude..." FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBlock Text="Conversations will appear in real time." FontSize="11" Foreground="{DynamicResource ThemeHighlightBrush}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Empty-Result Card: sessions exist but every row is filtered out -->
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}"
+                                Opacity="0.95"
+                                Visibility="{Binding IsEmptyResultState, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420">
+                                <TextBlock Text="🔍" FontSize="28" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <TextBlock Text="No conversations match the current filters" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
+                                <TextBlock Text="Try clearing the search box or choosing All Providers / All Workspaces / All Time." FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,6,0,12"/>
+                                <Button Command="{Binding ClearFiltersCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Padding="14,5"
+                                        ToolTip="Reset search text and all dropdown filters">
+                                    <TextBlock Text="Clear filters"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- SURFACE 2: Search Results -->
+                    <Grid Visibility="{Binding IsSearchResultsSurfaceActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <!-- SEARCH RESULTS DATAGRID -->
+                        <DataGrid ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedSearchResult}"
+                                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  CanUserReorderColumns="True" CanUserResizeColumns="True" CanUserSortColumns="True"
+                                  IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow"
+                                  AutomationProperties.Name="Search results list"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick">
+                            <!-- Context Menu for Search Results -->
+                            <DataGrid.ContextMenu>
+                                <ContextMenu Background="{DynamicResource ThemeSurfaceBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}"
+                                             DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                    <MenuItem Header="🚀 Resume Session Immediately" Command="{Binding ResumeCommand}"/>
+                                    <MenuItem Header="⚡ Resume With..." Style="{StaticResource ResumeWithParentStyle}"
+                                              IsEnabled="{Binding HasSelectedSession}">
+                                        <MenuItem Header="Antigravity (Google)" Command="{Binding ResumeWithCommand}" CommandParameter="antigravity" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Codex (OpenAI)" Command="{Binding ResumeWithCommand}" CommandParameter="codex" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Grok Build (xAI)" Command="{Binding ResumeWithCommand}" CommandParameter="grok" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="OpenClaude (@gitlawb)" Command="{Binding ResumeWithCommand}" CommandParameter="openclaude" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Cursor (Anysphere) ⚠" Command="{Binding ResumeWithCommand}" CommandParameter="cursor" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Pi (Earendil Works)" Command="{Binding ResumeWithCommand}" CommandParameter="pi" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="Hermes (Earendil Works)" Command="{Binding ResumeWithCommand}" CommandParameter="hermes" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                        <MenuItem Header="OpenCode (opencode-ai)" Command="{Binding ResumeWithCommand}" CommandParameter="opencode" Style="{StaticResource ModernMenuButtonStyle}"/>
+                                    </MenuItem>
+                                    <Separator Background="{DynamicResource ThemeBorderBrush}" Margin="6,3"/>
+                                    <MenuItem Header="📋 Copy Resume CLI Command" Command="{Binding CopyCommandCommand}"/>
+                                    <MenuItem Header="💾 Export Session..." Command="{Binding ExportSessionCommand}"/>
+                                    <MenuItem Header="📁 Open Workspace Folder in Explorer" Command="{Binding OpenFolderCommand}"/>
+                                    <MenuItem Header="💻 Open Workspace in VS Code" Command="{Binding OpenInEditorCommand}"/>
+                                </ContextMenu>
+                            </DataGrid.ContextMenu>
+
+                            <DataGrid.Columns>
+                                <!-- Rank Column -->
+                                <DataGridTextColumn Header="#" Binding="{Binding Rank}" Width="38" SortMemberPath="Rank">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Score Column -->
+                                <DataGridTextColumn Header="Score" Binding="{Binding FormattedScore}" Width="52" SortMemberPath="Score">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="FontFamily" Value="Consolas"/>
+                                            <Setter Property="FontSize" Value="10.5"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Provider Column -->
+                                <DataGridTemplateColumn Header="Provider" Width="95" SortMemberPath="Provider">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{Binding Provider, Converter={StaticResource ProviderToBadgeBrushConverter}}"
+                                                    CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0,0,0">
+                                                <TextBlock Text="{Binding ProviderDisplayName}" Foreground="{Binding Converter={StaticResource OnColorTextBrushConverter}}" FontWeight="SemiBold" FontSize="10.5"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Engine Source Column -->
+                                <DataGridTemplateColumn Header="Engine" Width="68" SortMemberPath="SourceBadge">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1"
+                                                    CornerRadius="3" Padding="5,1" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0,0,0">
+                                                <TextBlock Text="{Binding SourceBadge}" Foreground="{DynamicResource ThemeHighlightBrush}" FontSize="9.5" FontWeight="SemiBold"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Conversation Title -->
+                                <DataGridTemplateColumn Header="Conversation" Width="180" SortMemberPath="TitleDisplay">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0">
+                                                <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1"
+                                                        CornerRadius="3" Padding="4,1" Margin="0,0,4,0"
+                                                        Visibility="{Binding IsSubagent, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Text="sub" Foreground="{DynamicResource ThemeHighlightBrush}" FontSize="9" FontWeight="SemiBold"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding TitleDisplay}" VerticalAlignment="Center"
+                                                           FontWeight="SemiBold" Foreground="{DynamicResource ThemeTextPrimaryBrush}" TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding TitleDisplay}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Match Snippet Excerpt -->
+                                <DataGridTemplateColumn Header="Match Excerpt" Width="*" SortMemberPath="MatchSnippet">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MatchSnippet}" VerticalAlignment="Center" Margin="6,2"
+                                                       FontSize="11" Foreground="{DynamicResource ThemeTextPrimaryBrush}" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding MatchSnippet}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Workspace Column -->
+                                <DataGridTemplateColumn Header="Workspace" Width="120" SortMemberPath="WorkspaceDisplay">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding WorkspaceDisplay}" Foreground="{DynamicResource ThemeHighlightBrush}" VerticalAlignment="Center" Margin="6,0" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding WorkspaceDisplay}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                                <!-- Date Column -->
+                                <DataGridTextColumn Header="Date" Binding="{Binding DisplayDate}" Width="100" SortMemberPath="RecencyDate">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Margin" Value="6,0,0,0"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Turns -->
+                                <DataGridTextColumn Header="Turns" Binding="{Binding TurnsDisplay}" Width="120" SortMemberPath="MessagesCount">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- Search Partial Timeout Banner -->
+                        <Border VerticalAlignment="Top" Background="{DynamicResource ThemeCardAltBrush}" BorderBrush="{DynamicResource ThemeHighlightBrush}" BorderThickness="0,0,0,1" Padding="10,6"
+                                Visibility="{Binding IsSearchPartial, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="⚠️ " FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="Search timed out after 2s — showing partial results. Try narrowing your query pattern or date filter."
+                                           FontSize="11.5" Foreground="{DynamicResource ThemeHighlightBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Search Loading State Card -->
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}" Opacity="0.95"
+                                Visibility="{Binding IsSearchLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="32" Height="32" HorizontalAlignment="Center" Margin="0,0,0,14"/>
+                                <TextBlock Text="Searching..." FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Matching conversation metadata or scanning indexed transcript messages..." FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Search Prompt State Card (No query entered yet) -->
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}" Opacity="0.95"
+                                Visibility="{Binding IsSearchPrompt, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="380">
+                                <TextBlock Text="🔍" FontSize="30" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <TextBlock Text="Search Conversations" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Search titles and metadata, or enable Deep Content to search indexed transcript messages. Type at least 2 characters (or press Ctrl+F)."
+                                           FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,6,0,12"/>
+                                <Button Command="{Binding FocusSearchCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Center" Padding="14,5">
+                                    <TextBlock Text="Start Searching (Ctrl+F)"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 0-Hit Empty Card (Search completed with 0 results) -->
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}" Opacity="0.95"
+                                Visibility="{Binding IsSearchEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="380">
+                                <TextBlock Text="🔎" FontSize="30" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <TextBlock Text="No Matching Conversations Found" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="No conversation metadata or transcript messages matched this query and the current filters."
+                                           FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,6,0,12"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <Button Command="{Binding ClearSearchCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0" Padding="12,4">
+                                        <TextBlock Text="Clear Search (Esc)"/>
+                                    </Button>
+                                    <Button Command="{Binding ShowConversationsCommand}" Style="{StaticResource PrimaryButton}" Padding="12,4">
+                                        <TextBlock Text="Back to Conversations"/>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Search Error State Card -->
+                        <Border Background="{DynamicResource ThemeSurfaceBrush}" Opacity="0.95"
+                                Visibility="{Binding HasSearchError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="400">
+                                <TextBlock Text="⚠️" FontSize="30" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <TextBlock Text="Search Failed" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding SearchErrorText}" FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="0,6,0,12"/>
+                                <Button Command="{Binding ClearSearchCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Padding="14,5">
+                                    <TextBlock Text="Reset Query"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Grid>
+
+        <!-- SPLITTER -->
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource ThemeBorderBrush}" Cursor="SizeWE"/>
+
+            <!-- RIGHT PANEL: INSPECTOR & RESUME ACTIONS -->
+            <Border Grid.Column="2" Background="{DynamicResource ThemeCardAltBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <!-- Inspector Action Bar -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Tabs for Transcript / Details -->
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Top Action Bar -->
+                    <Border Grid.Row="0" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1" Padding="9,6">
+                        <StackPanel>
+                            <!-- Header Title and Provider Badge -->
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding InspectedSession.TitleDisplay, TargetNullValue='Select a conversation to inspect and resume'}"
+                                           FontSize="13" FontWeight="Bold" Foreground="{DynamicResource ThemeTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                <Border Grid.Column="1" Background="{Binding InspectedSession.Provider, Converter={StaticResource ProviderToBadgeBrushConverter}}"
+                                        CornerRadius="3" Padding="6,2" Margin="8,0,0,0"
+                                        Visibility="{Binding InspectedSession, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding InspectedSession.ProviderDisplayName}" Foreground="{Binding Converter={StaticResource OnColorTextBrushConverter}}" FontWeight="SemiBold" FontSize="10"/>
+                                </Border>
+                            </Grid>
+
+                            <!-- Primary Resume and Action Buttons -->
+                            <WrapPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                <Button Style="{StaticResource PrimaryButton}" Margin="0,0,6,5"
+                                        Command="{Binding ResumeCommand}" ToolTip="Launch terminal in the session's workspace and execute resume command">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="12" Height="12" Margin="0,0,5,0"
+                                                        Visibility="{Binding IsResuming, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <TextBlock Text="🚀 "
+                                                    Visibility="{Binding IsResuming, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=invert}"/>
+                                        <TextBlock Text="{Binding ResumeButtonLabel}"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Instant 'Resume With...' Dropdown Menu -->
+                                <ToggleButton x:Name="BtnResumeWithToggle" Style="{StaticResource SecondaryToggleButtonStyle}" Margin="0,0,6,5"
+                                              IsEnabled="{Binding HasSelectedSession}" ToolTip="Instantly resume this session in ANY other agent">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="⚡ Resume With..." FontWeight="SemiBold"/>
+                                        <TextBlock Text=" ▾" FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Popup IsOpen="{Binding IsChecked, ElementName=BtnResumeWithToggle, Mode=TwoWay}"
+                                       PlacementTarget="{Binding ElementName=BtnResumeWithToggle}"
+                                       Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                                    <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,4,0,0" Width="260">
+                                        <Border.Effect>
+                                            <DropShadowEffect BlurRadius="16" Direction="270" ShadowDepth="4" Opacity="0.55"/>
+                                        </Border.Effect>
+                                        <StackPanel>
+                                            <TextBlock Text="Resume Conversation In..." FontWeight="Bold" FontSize="11.5" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="8,4,8,8"/>
+                                            <!-- Provider brand swatch colors below are intentionally hardcoded hex (brand identity, not theme surfaces) -->
+                                            <Button Tag="antigravity" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#8A4DF7" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Antigravity" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (Google)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="codex" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}"
+                                                    ToolTip="Codex can resume its native sessions; cross-resume from another provider starts a new Codex session because history import is unavailable.">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#10A37F" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Codex" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (OpenAI)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="grok" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#F37021" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Grok Build" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (xAI)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="openclaude" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#E5732F" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="OpenClaude" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (@gitlawb)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="cursor" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#007ACC" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Cursor" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (Anysphere)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                    <TextBlock Text=" ⚠ no history" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="pi" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#F59E0B" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Pi" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (Earendil Works)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="hermes" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#63CAB7" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Hermes" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (Earendil Works)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Tag="opencode" Click="ResumeWithItem_Click" Style="{StaticResource AgentMenuItemStyle}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Background="#A855F7" CornerRadius="3" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="OpenCode" FontWeight="SemiBold"/>
+                                                    <TextBlock Text=" (opencode-ai)" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+
+                                            <Separator Background="{DynamicResource ThemeBorderBrush}" Margin="4,6,4,6"/>
+
+                                            <StackPanel Orientation="Horizontal" Margin="8,0,8,4">
+                                                <TextBlock Text="Workspace:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <TextBox Text="{Binding ResumeWithWorkspace, UpdateSourceTrigger=PropertyChanged}" Width="200"
+                                                         Background="{DynamicResource ThemeCardAltBrush}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                                                         FontSize="11" Padding="6,2" VerticalContentAlignment="Center"
+                                                         CaretBrush="{DynamicResource ThemeTextPrimaryBrush}"
+                                                         ToolTip="Override workspace for the resumed session"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </Popup>
+
+                                <Button Style="{StaticResource SecondaryButton}" Margin="0,0,6,5"
+                                        Command="{Binding CopyCommandCommand}" ToolTip="Copy CLI resume command to clipboard">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding CopyButtonLabel}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource SecondaryButton}" Margin="0,0,6,5"
+                                        Command="{Binding ExportSessionCommand}" ToolTip="Export session transcript to Markdown, HTML, or JSON">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="12" Height="12" Margin="0,0,5,0"
+                                                        Visibility="{Binding IsExporting, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <TextBlock Text="💾 "
+                                                   Visibility="{Binding IsExporting, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=invert}"/>
+                                        <TextBlock Text="{Binding ExportButtonLabel}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Content="📁 Folder" Style="{StaticResource SecondaryButton}" Margin="0,0,6,5"
+                                        Command="{Binding OpenFolderCommand}" ToolTip="Open workspace folder in File Explorer"/>
+                                <Button Content="💻 VS Code" Style="{StaticResource SecondaryButton}" Margin="0,0,6,5"
+                                        Command="{Binding OpenInEditorCommand}" ToolTip="Open workspace in VS Code or Cursor"/>
+                            </WrapPanel>
+
+                            <!-- Inspector Loading Progress Bar -->
+                            <ProgressBar VerticalAlignment="Bottom" Height="2" Style="{StaticResource SlimProgressBarStyle}"
+                                         Foreground="{DynamicResource ThemeHighlightBrush}"
+                                         Background="Transparent"
+                                         IsIndeterminate="True"
+                                         Margin="-9,0,-9,-6"
+                                         Visibility="{Binding IsLoadingTranscript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Tabs: Transcript vs Details -->
+                    <TabControl Grid.Row="1" Background="{DynamicResource ThemeCardAltBrush}" BorderThickness="0" Margin="0">
+                        <TabControl.Resources>
+                            <Style TargetType="TabItem">
+                                <Setter Property="Background" Value="{DynamicResource ThemeSurfaceBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                <Setter Property="Padding" Value="14,6"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="FontSize" Value="12"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="TabItem">
+                                            <Border Name="Border" Background="{TemplateBinding Background}" BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderBrush}" Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter ContentSource="Header"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Border" Property="Background" Value="{DynamicResource ThemeCardAltBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextPrimaryBrush}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </TabControl.Resources>
+
+                        <!-- Tab 1: Transcript Viewer -->
+                        <TabItem Header="Transcript Preview">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <!-- Match navigator: which message matched, why, and its excerpt -->
+                                <Border Grid.Row="0" Background="{DynamicResource ThemeCardAltBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                                        BorderThickness="0,0,0,1" Padding="10,6"
+                                        Visibility="{Binding HasMatchNav, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="🎯" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBlock Text="{Binding MatchBannerText}" Foreground="{DynamicResource ThemeHighlightBrush}"
+                                                       FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            <Button Content="‹ Prev" Command="{Binding PrevMatchCommand}" Style="{StaticResource SecondaryButton}"
+                                                    Height="22" Padding="8,0" Margin="10,0,0,0" FontSize="11"/>
+                                            <Button Content="Next ›" Command="{Binding NextMatchCommand}" Style="{StaticResource SecondaryButton}"
+                                                    Height="22" Padding="8,0" Margin="6,0,0,0" FontSize="11"/>
+                                        </StackPanel>
+                                        <TextBlock converters:SnippetHighlightBehavior.HtmlText="{Binding ActiveMatchExcerpt}"
+                                                   Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11.5"
+                                                   TextWrapping="Wrap" Margin="22,4,0,0" MaxHeight="72" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Border>
+                                <ListBox Grid.Row="2" x:Name="TranscriptListBox" ItemsSource="{Binding SelectedTranscriptMessages}"
+                                         VirtualizingStackPanel.IsVirtualizing="True"
+                                         VirtualizingStackPanel.VirtualizationMode="Recycling"
+                                         ScrollViewer.CanContentScroll="True"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Padding="10"
+                                         SelectionMode="Single"
+                                         Focusable="False">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Focusable" Value="False"/>
+                                            <Setter Property="IsHitTestVisible" Value="True"/>
+                                            <Setter Property="Padding" Value="0"/>
+                                            <Setter Property="Margin" Value="0,0,0,8"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <ContentPresenter/>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{DynamicResource ThemeCardBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                                                    BorderThickness="1" CornerRadius="6" Padding="10">
+                                                <StackPanel>
+                                                    <!-- Message Header: Role & Timestamp -->
+                                                    <Grid Margin="0,0,0,8">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Grid.Column="0" Background="{Binding Role, Converter={StaticResource RoleToBrushConverter}}"
+                                                                CornerRadius="3" Padding="6,2" HorizontalAlignment="Left">
+                                                            <TextBlock Text="{Binding Role}" FontWeight="Bold" Foreground="{Binding Converter={StaticResource OnColorTextBrushConverter}}" FontSize="11"/>
+                                                        </Border>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Author, TargetNullValue=''}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Grid.Column="2" Text="{Binding Timestamp, TargetNullValue=''}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                                    </Grid>
+
+                                                    <!-- Message Content: read-only viewer — no undo stack, no spellcheck, no editing chrome -->
+                                                    <TextBox Text="{Binding Content, Mode=OneWay}" TextWrapping="Wrap"
+                                                             Background="Transparent" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderThickness="0"
+                                                             IsReadOnly="True" IsUndoEnabled="False"
+                                                             SpellCheck.IsEnabled="False" ContextMenu="{x:Null}"
+                                                             KeyboardNavigation.TabNavigation="None"
+                                                             IsReadOnlyCaretVisible="True"
+                                                             FontSize="12.5" FontFamily="Segoe UI, Consolas"
+                                                             AutomationProperties.Name="Transcript message content"
+                                                             CaretBrush="{DynamicResource ThemeTextPrimaryBrush}"/>
+
+                                                    <!-- Tool Invocations List -->
+                                                    <ItemsControl ItemsSource="{Binding ToolCalls}" Margin="0,8,0,0">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Border Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="8,5" Margin="0,3,0,0">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock Text="🔧 Tool: " Foreground="{DynamicResource ThemeHighlightBrush}" FontWeight="SemiBold" FontSize="11"/>
+                                                                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource ThemeTextPrimaryBrush}" FontWeight="SemiBold" FontSize="11" Margin="0,0,8,0"/>
+                                                                        <TextBlock Text="{Binding ArgumentsJson}" ToolTip="{Binding ArgumentsJson}" MaxWidth="340" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                                                    </StackPanel>
+                                                                </Border>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <!-- Windowing bar: huge transcripts bind a slice; match navigation auto-windows ±200 -->
+                                <Border Grid.Row="1" Background="{DynamicResource ThemeCardAltBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}"
+                                        BorderThickness="0,0,0,1" Padding="10,4"
+                                        Visibility="{Binding TranscriptIsWindowed, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🪟" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{Binding TranscriptWindowInfo}" Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                                                   FontSize="11" VerticalAlignment="Center"/>
+                                        <Button Content="Show more" Command="{Binding ShowMoreTranscriptCommand}" Style="{StaticResource SecondaryButton}"
+                                                Height="22" Padding="8,0" Margin="10,0,0,0" FontSize="11"
+                                                ToolTip="Load 400 more messages on each side (full transcript at the ends)"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Loading Transcript Overlay -->
+                                <Border Grid.Row="0" Grid.RowSpan="3" Background="{DynamicResource ThemeCardAltBrush}"
+                                        Opacity="0.85"
+                                        Visibility="{Binding IsLoadingTranscript, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        IsHitTestVisible="False">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="28" Height="28" Margin="0,0,0,10"/>
+                                        <TextBlock Text="Loading transcript..." Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="12" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="{Binding InspectedSession.TitleDisplay, FallbackValue=''}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11" HorizontalAlignment="Center" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" MaxWidth="420"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- Tab 2: Session Metadata -->
+                        <TabItem Header="Session Details">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                                <StackPanel>
+                                    <TextBlock Text="Session Information" FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeTextPrimaryBrush}" Margin="0,0,0,10"/>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Session ID:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBox Grid.Column="1" Text="{Binding InspectedSession.SessionId, Mode=OneWay}" IsReadOnly="True" Background="Transparent" Foreground="{DynamicResource ThemeTextPrimaryBrush}" BorderThickness="0" FontFamily="Consolas"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Provider:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding InspectedSession.ProviderDisplayName}" Foreground="{DynamicResource ThemeTextPrimaryBrush}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Workspace Path:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBox Grid.Column="1" Text="{Binding InspectedSession.Workspace, Mode=OneWay}" IsReadOnly="True" Background="Transparent" Foreground="{DynamicResource ThemeHighlightBrush}" BorderThickness="0" TextWrapping="Wrap"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Model:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding InspectedSession.ModelName, TargetNullValue='(Default)'}" Foreground="{DynamicResource ThemeHighlightBrush}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Started At:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding InspectedSession.StartedAt, TargetNullValue='Unknown'}" Foreground="{DynamicResource ThemeTextPrimaryBrush}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Last Active At:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding InspectedSession.LastActiveAt, TargetNullValue='Unknown'}" Foreground="{DynamicResource ThemeTextPrimaryBrush}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Source File:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBox Grid.Column="1" Text="{Binding InspectedSession.SourcePath, Mode=OneWay}" IsReadOnly="True" Background="Transparent" Foreground="{DynamicResource ThemeTextSecondaryBrush}" BorderThickness="0" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"/>
+                                    </Grid>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- BOTTOM STATUS BAR -->
+        <Border Grid.Row="3" Background="{DynamicResource ThemeStatusBarBgBrush}" TextElement.Foreground="{DynamicResource ThemeStatusBarFgBrush}" Padding="10,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ContentControl Style="{StaticResource LoadingSpinnerStyle}" Width="12" Height="12" Margin="0,0,8,0"
+                                    Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <ProgressBar Style="{StaticResource SlimProgressBarStyle}" Width="65" Height="4" Margin="0,0,8,0" VerticalAlignment="Center"
+                                 Value="{Binding OperationProgressPercent, Mode=OneWay}"
+                                 IsIndeterminate="{Binding IsIndeterminateProgress}"
+                                 Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding ProgressPercentText}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{DynamicResource ThemeStatusBarFgBrush}"
+                               Visibility="{Binding IsDeterminateProgress, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Border Background="#25000000" CornerRadius="3" Padding="5,1" Margin="0,0,8,0"
+                            Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding BusyOperationLabel}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ThemeStatusBarFgBrush}"/>
+                    </Border>
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Sessions.Count, StringFormat='Conversations: {0}'}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                    <Button Command="{Binding OpenLogFileCommand}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource ThemeStatusBarFgBrush}" Cursor="Hand" Padding="4,0" ToolTip="Open debug log file">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📜 " FontSize="10"/>
+                            <TextBlock Text="Debug Log" FontSize="11.5" TextDecorations="Underline"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

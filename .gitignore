@@ -1,0 +1,37 @@
+# Build artifacts
+**/bin/
+**/obj/
+*.pdb
+
+# IDE / OS
+.vscode/
+.idea/
+*.iml
+Thumbs.db
+.DS_Store
+
+# Runtime user data (created under %LOCALAPPDATA%\Casr anyway)
+*.db
+*.db-journal
+*.db-wal
+
+# Test/harness outputs
+harness-reports/
+TestResults/
+*.trx
+*.user
+
+# Repo-local script output screenshots
+artifacts/
+Untitled.png
+.hermes-diff-*.txt
+.hermes/
+
+# Local-only. Agent instructions, journals, machine notes, and live-store probes.
+# The files stay on disk. They are not part of the published project.
+AGENTS.md
+CLAUDE.md
+DEV_JOURNAL.md
+TESTING_STANDARD.md
+docs/SPEC-*.md
+scripts/harness-eval-all.sh
