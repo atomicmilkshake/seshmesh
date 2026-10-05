@@ -91,7 +91,9 @@ public class PiProviderTests : IDisposable
         Assert.True(result.Installed);
         Assert.NotEmpty(result.Evidence);
         Assert.NotNull(result.Version);
-        Assert.Equal("0.85.1", result.Version);
+        // Semver, not a frozen version: pinning the machine's installed version turns
+        // ordinary CLI upgrades (0.85.1 -> 0.87.0) into environmental failures.
+        Assert.Matches(@"^\d+\.\d+\.\d+", result.Version);
     }
 
     [Trait("Category", "LiveSystem")]

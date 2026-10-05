@@ -84,6 +84,7 @@ public class BackupService
         // OPENCODE_HOME/OPENCODE_DATA_DIR/XDG_DATA_HOME, OPENCLAUDE_CONFIG_DIR/HOME):
         // CollectItems reads from these resolved locations, so restores must allow
         // writing back to them as well.
+        try { roots.Add(GrokProvider.GetHomeDir()); } catch { }
         try { roots.Add(PiProvider.GetHomeDir()); } catch { }
         try { roots.Add(HermesProvider.GetHomeDir()); } catch { }
         try { roots.Add(OpenCodeProvider.GetDataDir()); } catch { }
@@ -178,13 +179,20 @@ public class BackupService
             }
         }
 
-        // 3. Grok CLI
+        // 3. Grok CLI (GROK_HOME override or ~/.grok — same resolution the provider uses)
         if (scope.IncludeGrok)
         {
-            var grokDir = Path.Combine(userProfile, ".grok");
-            if (Directory.Exists(grokDir))
+            try
             {
-                AddDirectoryRecursive(grokDir, "raw/grok", "grok", items);
+                var grokDir = GrokProvider.GetHomeDir();
+                if (Directory.Exists(grokDir))
+                {
+                    AddDirectoryRecursive(grokDir, "raw/grok", "grok", items);
+                }
+            }
+            catch (Exception ex)
+            {
+                CasrLogger.Warn("BACKUP", $"Failed collecting Grok store: {ex.Message}");
             }
         }
 

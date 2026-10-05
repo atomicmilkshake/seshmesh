@@ -280,30 +280,19 @@ public class ServiceFixTests : IDisposable
 
     // ---------- BackupService Sha256 population ----------
 
-    // Live-store scale quarantine (2026-09-26): SKIP, not LiveSystem. The live
-    // ~/.grok now holds multi-GB grok worktrees (probe: 19,832 files / 2.4 GB incl. a
-    // 351 MB .git pack, 1.5 GB zip, EXIT 0 standalone in ~8 min), and CollectItems
-    // honors no GROK_HOME override, so this test archives the entire live store and
-    // kills the Debug test host ~4 min in (no managed exception, host "crashed").
-    // Re-enable (remove Skip) once BackupService can root collection in a temp dir.
-    [Fact(Skip = "Quarantined: archives the whole live ~/.grok (now 2.4 GB with worktrees) and crashes the test host. Re-enable when BackupService honors a collect-root override (e.g. GROK_HOME) so the marker can live in temp.")]
+    // Hermetic again since 2026-10-04: BackupService roots Grok collection at GROK_HOME
+    // (GrokProvider.GetHomeDir), so this test archives a temp store only and never reads
+    // the live ~/.grok (multi-GB worktrees used to crash the test host).
+    [Fact]
     public async Task CreateBackupAsync_PopulatesSha256InManifest()
     {
-        // BackupService.CollectItems reads the REAL ~/.grok (it honours no GROK_HOME
-        // override — that hook belongs in BackupService, out of scope here), so the
-        // marker lives in the live store for the duration of this test and MUST be
-        // removed afterwards: delete in the body, keep a finally safety net, then
-        // assert the file is actually gone.
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var grokDir = Path.Combine(userProfile, ".grok");
-        var marker = Path.Combine(grokDir, $"casr_test_{Guid.NewGuid():N}.txt");
-        Directory.CreateDirectory(grokDir);
+        var tempGrokHome = Path.Combine(_tempDir, "grok_home");
+        Directory.CreateDirectory(tempGrokHome);
+        var marker = Path.Combine(tempGrokHome, $"casr_test_{Guid.NewGuid():N}.txt");
         var content = "casr sha256 test " + Guid.NewGuid();
         await File.WriteAllTextAsync(marker, content);
 
-        // Redirect anything provider-side that honours GROK_HOME into temp anyway.
-        var tempGrokHome = Path.Combine(_tempDir, "grok_home");
-        Directory.CreateDirectory(tempGrokHome);
+        var previousGrokHome = Environment.GetEnvironmentVariable("GROK_HOME");
         Environment.SetEnvironmentVariable("GROK_HOME", tempGrokHome);
         try
         {
@@ -327,8 +316,11 @@ public class ServiceFixTests : IDisposable
             };
             var manifest = await svc.CreateBackupAsync(zipPath, scope);
 
-            var entry = manifest.Files.FirstOrDefault(f => f.ZipPath.EndsWith(Path.GetFileName(marker), StringComparison.OrdinalIgnoreCase));
-            Assert.NotNull(entry);
+            // Grok-only scope and the temp home holds exactly the marker: a single entry
+            // proves collection was rooted at GROK_HOME, not the live store.
+            var entry = Assert.Single(manifest.Files);
+            Assert.Equal("grok", entry.Provider);
+            Assert.EndsWith(Path.GetFileName(marker), entry.ZipPath);
             Assert.False(string.IsNullOrEmpty(entry.Sha256));
 
             string expected;
@@ -337,15 +329,18 @@ public class ServiceFixTests : IDisposable
                 expected = Convert.ToHexString(sha.ComputeHash(s)).ToLowerInvariant();
             Assert.Equal(expected, entry.Sha256);
 
-            File.Delete(marker);
+            // Independently read the archived bytes back out of the zip.
+            using var fs = File.OpenRead(zipPath);
+            using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+            var archived = archive.GetEntry(entry.ZipPath);
+            Assert.NotNull(archived);
+            using var reader = new StreamReader(archived!.Open());
+            Assert.Equal(content, await reader.ReadToEndAsync());
         }
         finally
         {
-            Environment.SetEnvironmentVariable("GROK_HOME", null);
-            try { if (File.Exists(marker)) File.Delete(marker); } catch { }
+            Environment.SetEnvironmentVariable("GROK_HOME", previousGrokHome);
         }
-
-        Assert.False(File.Exists(marker), $"cleanup failed — marker remains in the live grok store: {marker}");
     }
 
     // ---------- SessionDatabase FTS sanitization ----------

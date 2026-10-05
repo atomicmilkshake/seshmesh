@@ -19,7 +19,10 @@ public class GrokProvider : IProvider
 
     private static readonly System.Text.Encoding Utf8NoBom = new System.Text.UTF8Encoding(false);
 
-    private static string GetHomeDir()
+    /// <summary>Resolved Grok home: <c>GROK_HOME</c> when set, else <c>~/.grok</c>.
+    /// Public so backup/restore roots resolve through the same override (hermetic tests,
+    /// non-default installs) instead of hardcoding the profile path.</summary>
+    public static string GetHomeDir()
     {
         var envHome = Environment.GetEnvironmentVariable("GROK_HOME");
         if (!string.IsNullOrWhiteSpace(envHome)) return envHome;
@@ -924,7 +927,7 @@ public class GrokProvider : IProvider
                 else if (msg.Extra.TryGetValue("reasoning", out var r) && r != null) thinking = r.ToString();
                 else if (msg.Extra.TryGetValue("reasoning_content", out var rc) && rc != null) thinking = rc.ToString();
 
-                if (msg.Role == MessageRole.User)
+                if (msg.Role == MessageRole.User || msg.Role == MessageRole.System || msg.Role == MessageRole.Other)
                 {
                     var updateEntry = new Dictionary<string, object?>
                     {
@@ -935,6 +938,9 @@ public class GrokProvider : IProvider
                             ["sessionId"] = targetId,
                             ["update"] = new Dictionary<string, object?>
                             {
+                                // System/other turns have no native ACP role in the chat log;
+                                // carry them as user text so the content survives the conversion
+                                // instead of being silently dropped.
                                 ["sessionUpdate"] = "user_message_chunk",
                                 ["content"] = new { type = "text", text = content },
                                 ["messageId"] = $"{targetId}-{msg.Index}"
@@ -1094,4 +1100,9 @@ public class GrokProvider : IProvider
     {
         return $"grok --resume {sessionId}";
     }
+
+    /// <summary>Grok's reader takes the summary.json entry point, not updates.jsonl.</summary>
+    public string? ReadBackPath(WrittenSession written)
+        => written.Paths.FirstOrDefault(p => p.EndsWith("summary.json", StringComparison.OrdinalIgnoreCase))
+           ?? written.Paths.FirstOrDefault();
 }
