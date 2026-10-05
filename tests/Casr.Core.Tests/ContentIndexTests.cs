@@ -393,13 +393,21 @@ public class ContentIndexTests : IDisposable
         {
             Assert.True(db.NeedsModelReembed());
 
+            // Interrupted migration: one session is re-embedded before the cancel.
+            var (firstPass, _, _) = await svc.EnsureContentIndexAsync(new[] { sessions[0] }, new SyncProgress());
+            Assert.Equal(1, firstPass);
+            Assert.Equal(4, stub.ReadCalls); // 3 initial + 1 migrated
+            Assert.True(db.NeedsModelReembed());
+
+            // The next pass resumes: already-migrated sessions are skipped, only the
+            // two unfinished sessions are re-read despite unchanged fingerprints.
             var progress = new SyncProgress();
             var (indexed, skipped, errors) = await svc.EnsureContentIndexAsync(sessions, progress);
 
-            Assert.Equal(3, indexed);
-            Assert.Equal(0, skipped);
+            Assert.Equal(2, indexed);
+            Assert.Equal(1, skipped);
             Assert.Equal(0, errors);
-            Assert.Equal(6, stub.ReadCalls); // model switch forced a re-read despite unchanged fingerprints
+            Assert.Equal(6, stub.ReadCalls);
             Assert.False(db.NeedsModelReembed());
             Assert.Contains(progress.Beats, b => b.Phase == "indexing");
         }

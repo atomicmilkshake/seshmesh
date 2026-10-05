@@ -581,17 +581,28 @@ public class SessionDiscoveryService
         // foreign-model vectors must be re-read and re-embedded once. Resumable —
         // a session that already has an active-model vector is skipped next run.
         var modelSwitch = !force && !backfill && _database.NeedsModelReembed();
+        HashSet<string>? activeModelSessions = null;
         if (modelSwitch)
-            CasrLogger.Info("DISCOVERY", $"Embedding model changed to '{Search.TextEmbedder.ModelId}': re-embedding indexed sessions");
+        {
+            activeModelSessions = _database.GetActiveModelSessionIds();
+            CasrLogger.Info("DISCOVERY", $"Embedding model changed to '{Search.TextEmbedder.ModelId}': re-embedding indexed sessions " +
+                $"({activeModelSessions.Count} already migrated, skipped)");
+        }
         var pending = new List<SessionSummary>(sessions.Count);
         foreach (var s in sessions)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!force && !backfill && !modelSwitch && states.TryGetValue(s.SessionId, out var st) &&
-                st.FileSize == s.FileSizeBytes && st.MessagesCount == s.MessagesCount &&
-                st.LastActiveMs == ToLastActiveMs(s))
+            if (!force && !backfill)
             {
-                continue;
+                // Model switch: already-migrated sessions are skipped so an interrupted
+                // re-embed resumes instead of redoing the finished portion.
+                if (modelSwitch && activeModelSessions != null && activeModelSessions.Contains(s.SessionId)) continue;
+                if (!modelSwitch && states.TryGetValue(s.SessionId, out var st) &&
+                    st.FileSize == s.FileSizeBytes && st.MessagesCount == s.MessagesCount &&
+                    st.LastActiveMs == ToLastActiveMs(s))
+                {
+                    continue;
+                }
             }
             pending.Add(s);
         }

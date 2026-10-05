@@ -631,13 +631,13 @@ public class MainViewModel : ViewModelBase, IDisposable
     public bool CanToggleNeural => NeuralModelAvailable && !IsScanning && !IsIndexing;
 
     public string NeuralStatusText => TextEmbedder.IsNeuralActive
-        ? "🧠 Neural on"
+        ? $"🧠 Neural on ({TextEmbedder.DeviceLabel})"
         : NeuralModelAvailable ? "🧠 Neural" : "🧠 Neural (no model)";
 
     public string NeuralTooltip => !NeuralModelAvailable
         ? "MiniLM model not downloaded. Run scripts\\Download-EmbeddingModel.ps1, restart SeshMesh, then enable this."
         : TextEmbedder.IsNeuralActive
-            ? "Neural semantic search is active (MiniLM, 384-dim ONNX). Uncheck to return to the offline keyword embedder."
+            ? $"Neural semantic search is active (MiniLM, 384-dim ONNX) on {TextEmbedder.DeviceLabel}. Uncheck to return to the offline keyword embedder."
             : "Enable neural semantic search (MiniLM via ONNX). Enabling re-embeds the transcript index for the new model; the re-embed is cancellable and resumes on later scans.";
 
     /// <summary>Saved-search names from UserSettings (sorted); picking one applies it.</summary>
@@ -1240,7 +1240,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 });
                 RefreshNeuralProperties();
                 if (active)
-                    CasrLogger.Info("NEURAL", $"Neural embeddings active at startup ({EmbeddingModelManager.ModelPath})");
+                    CasrLogger.Info("NEURAL", $"Neural embeddings active at startup ({EmbeddingModelManager.ModelPath}); provider={TextEmbedder.DeviceLabel}");
                 else
                     CasrLogger.Warn("NEURAL", $"Neural embeddings requested but unavailable: {neuralError ?? "model not downloaded"}");
             }
@@ -1463,7 +1463,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             }
 
             RefreshNeuralProperties();
-            CasrLogger.Info("NEURAL", $"Neural embeddings active ({EmbeddingModelManager.ModelPath}); re-embedding transcript index");
+            CasrLogger.Info("NEURAL", $"Neural embeddings active ({EmbeddingModelManager.ModelPath}); provider={TextEmbedder.DeviceLabel}; re-embedding transcript index");
             await RebuildContentIndexAsync();
         }
         catch (Exception ex)

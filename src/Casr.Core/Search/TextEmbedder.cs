@@ -23,6 +23,8 @@ public static class TextEmbedder
     public static string ModelId => _active.ModelId;
     /// <summary>Honest UI-facing label of the ACTIVE provider.</summary>
     public static string DisplayLabel => _active.DisplayLabel;
+    /// <summary>Execution device of the ACTIVE provider: "CUDA (GPU)", "CPU", or "offline".</summary>
+    public static string DeviceLabel => _active is OnnxEmbedder onnx ? onnx.ProviderLabel : "offline";
     /// <summary>Vector width of the ACTIVE provider (stored in the dims column).</summary>
     public static int Dims => _active.Dims;
 
@@ -36,6 +38,9 @@ public static class TextEmbedder
     public static bool IsNeuralActive => _active is OnnxEmbedder;
 
     public static float[] Embed(string? text) => _active.Embed(text);
+
+    /// <summary>Embeds many texts in one provider pass (batched on the neural provider).</summary>
+    public static float[][] EmbedBatch(IReadOnlyList<string?> texts) => _active.EmbedBatch(texts);
 
     /// <summary>
     /// Average message vectors (length-weighted, capped) into one session vector.

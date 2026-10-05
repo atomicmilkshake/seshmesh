@@ -6,9 +6,18 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- -p:CasrGpu=true swaps the CPU ONNX runtime for the CUDA build. The GPU
+         provider adds ~187 MB of native code to a self-contained publish, so the
+         default stays CPU-only; the CUDA build falls back to CPU on machines
+         without a CUDA 13 runtime + cuDNN 9. See docs/neural-embeddings.md. -->
+    <CasrGpu Condition="'$(CasrGpu)' == ''">false</CasrGpu>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" Condition="'$(CasrGpu)' != 'true'" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.30.0" Condition="'$(CasrGpu)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

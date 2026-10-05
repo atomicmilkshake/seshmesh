@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Casr.Core.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
@@ -28,15 +29,68 @@ public sealed class OnnxEmbedder : IEmbeddingProvider, IDisposable
     private readonly MiniLmTokenizer _tokenizer;
     private readonly object _runGate = new();
     private readonly HashSet<string> _inputNames;
+    private readonly string _providerLabel;
     private bool _disposed;
 
     private static bool? _runtimeAvailable;
 
+    /// <summary>
+    /// Execution provider actually in use: <c>CUDA (GPU)</c> when the native
+    /// runtime was built with CUDA support and the CUDA 13 + cuDNN 9 DLLs
+    /// resolved, otherwise <c>CPU</c> (fallback — never an error).
+    /// </summary>
+    public string ProviderLabel => _providerLabel;
+
     private OnnxEmbedder(string modelPath, string vocabPath)
     {
         _tokenizer = MiniLmTokenizer.Load(vocabPath);
-        _session = new InferenceSession(modelPath);
+        CudaSupport.EnsureRuntimeSearchPath();
+        _session = CreateSession(modelPath, out _providerLabel);
         _inputNames = new HashSet<string>(_session.InputMetadata.Keys, StringComparer.Ordinal);
+    }
+
+    private static InferenceSession CreateSession(string modelPath, out string providerLabel)
+    {
+        // Optional CUDA: append the EP when the native runtime supports it and the
+        // CUDA/cuDNN DLLs resolve; otherwise (CPU build, no GPU, missing cuDNN) fall
+        // back to the CPU provider without failing the whole neural feature.
+        // CASR_ONNX_CPU=1 forces the CPU provider (escape hatch for broken drivers).
+        var forceCpu = string.Equals(Environment.GetEnvironmentVariable("CASR_ONNX_CPU"), "1", StringComparison.Ordinal);
+        if (forceCpu)
+        {
+            providerLabel = "CPU";
+            CasrLogger.Info("ONNX", "MiniLM execution provider: CPU (forced by CASR_ONNX_CPU=1)");
+            return new InferenceSession(modelPath);
+        }
+
+        try
+        {
+            var options = new SessionOptions();
+            try
+            {
+                options.AppendExecutionProvider_CUDA(0);
+                var session = new InferenceSession(modelPath, options);
+                providerLabel = "CUDA (GPU)";
+                CasrLogger.Info("ONNX", $"MiniLM execution provider: CUDA device 0 ({Path.GetFileName(modelPath)})");
+                return session;
+            }
+            catch (Exception ex)
+            {
+                CasrLogger.Info("ONNX", $"CUDA execution provider unavailable ({ex.Message}); using the CPU provider.");
+            }
+            finally
+            {
+                options.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            CasrLogger.Debug("ONNX", $"CUDA setup failed before provider append: {ex.Message}");
+        }
+
+        providerLabel = "CPU";
+        CasrLogger.Info("ONNX", "MiniLM execution provider: CPU");
+        return new InferenceSession(modelPath);
     }
 
     /// <summary>
@@ -94,51 +148,136 @@ public sealed class OnnxEmbedder : IEmbeddingProvider, IDisposable
         }
     }
 
-    public float[] Embed(string? text)
+    /// <summary>Texts per ONNX Run call; bounds activation memory on CPU and GPU.</summary>
+    public const int MaxBatchSize = 32;
+
+    public float[] Embed(string? text) => EmbedBatch(new[] { text })[0];
+
+    /// <summary>
+    /// Batched inference: tokenizes every text, pads to the batch's longest sequence,
+    /// and runs one ONNX call per <see cref="MaxBatchSize"/> chunk. Blank inputs yield
+    /// zero vectors in place. Output is element-wise identical to single-text calls.
+    /// </summary>
+    public float[][] EmbedBatch(IReadOnlyList<string?> texts)
     {
-        var vec = new float[Dims];
-        if (string.IsNullOrWhiteSpace(text)) return vec;
+        ArgumentNullException.ThrowIfNull(texts);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var (ids, mask, typeIds) = _tokenizer.Encode(text, MaxSequenceLength);
-        var inputs = new List<NamedOnnxValue>(3);
-        try
+        var result = new float[texts.Count][];
+        var pending = new List<int>(texts.Count);
+        for (var i = 0; i < texts.Count; i++)
         {
-            inputs.Add(NamedOnnxValue.CreateFromTensor("input_ids", ToInt64Tensor(ids)));
-            inputs.Add(NamedOnnxValue.CreateFromTensor("attention_mask", ToInt64Tensor(mask)));
-            if (_inputNames.Contains("token_type_ids"))
-                inputs.Add(NamedOnnxValue.CreateFromTensor("token_type_ids", ToInt64Tensor(typeIds)));
+            if (string.IsNullOrWhiteSpace(texts[i]))
+                result[i] = new float[Dims]; // blank input: zero vector, same contract as Embed
+            else
+                pending.Add(i);
+        }
 
-            List<DisposableNamedOnnxValue> results;
-            lock (_runGate)
+        for (var start = 0; start < pending.Count; start += MaxBatchSize)
+        {
+            var count = Math.Min(MaxBatchSize, pending.Count - start);
+            var encoded = new (long[] Ids, long[] Mask, long[] TypeIds)[count];
+            var maxLength = 0;
+            for (var j = 0; j < count; j++)
             {
-                using var collection = _session.Run(inputs);
-                results = collection.ToList();
+                encoded[j] = _tokenizer.Encode(texts[pending[start + j]]!, MaxSequenceLength);
+                if (encoded[j].Ids.Length > maxLength) maxLength = encoded[j].Ids.Length;
             }
+
+            var ids = new long[count * maxLength];
+            var mask = new long[count * maxLength];
+            var typeIds = new long[count * maxLength];
+            for (var j = 0; j < count; j++)
+            {
+                Array.Copy(encoded[j].Ids, 0, ids, j * maxLength, encoded[j].Ids.Length);
+                Array.Copy(encoded[j].Mask, 0, mask, j * maxLength, encoded[j].Mask.Length);
+                // token_type_ids stay zero (single-segment input), matching Encode's output.
+            }
+
+            var inputs = new List<NamedOnnxValue>(3);
             try
             {
-                if (results.Count == 0)
-                    throw new InvalidOperationException("ONNX model returned no outputs.");
-                var hidden = DecodeHiddenStates(results[0].Value, Dims);
-                var pooled = MeanPool(hidden, mask, Dims);
-                return EmbeddingVectors.L2Normalize(pooled);
+                inputs.Add(NamedOnnxValue.CreateFromTensor("input_ids", new DenseTensor<long>(ids, new[] { count, maxLength })));
+                inputs.Add(NamedOnnxValue.CreateFromTensor("attention_mask", new DenseTensor<long>(mask, new[] { count, maxLength })));
+                if (_inputNames.Contains("token_type_ids"))
+                    inputs.Add(NamedOnnxValue.CreateFromTensor("token_type_ids", new DenseTensor<long>(typeIds, new[] { count, maxLength })));
+
+                List<DisposableNamedOnnxValue> results;
+                lock (_runGate)
+                {
+                    using var collection = _session.Run(inputs);
+                    results = collection.ToList();
+                }
+                try
+                {
+                    if (results.Count == 0)
+                        throw new InvalidOperationException("ONNX model returned no outputs.");
+                    var (flat, seq, hidden) = DecodeHiddenStatesBatch(results[0].Value, count, Dims);
+                    for (var j = 0; j < count; j++)
+                    {
+                        var pooled = MeanPoolRow(flat, j * seq * hidden, mask, j * maxLength, seq, hidden);
+                        result[pending[start + j]] = EmbeddingVectors.L2Normalize(pooled);
+                    }
+                }
+                finally
+                {
+                    foreach (var r in results) r.Dispose();
+                }
             }
             finally
             {
-                foreach (var r in results) r.Dispose();
+                inputs.Clear();
             }
         }
-        finally
-        {
-            inputs.Clear();
-        }
+
+        return result;
     }
 
     public float[] EmbedSession(IEnumerable<(string? Content, int WeightHint)> parts)
         => EmbeddingVectors.AverageSession(this, parts);
 
-    private static Tensor<long> ToInt64Tensor(long[] values)
-        => new DenseTensor<long>(values, new[] { 1, values.Length });
+    /// <summary>
+    /// f32/f16-agnostic decode of a batched last-hidden-state tensor
+    /// ([batch, seq, hidden]) into flat storage + its real seq/hidden.
+    /// </summary>
+    internal static (float[] Flat, int Seq, int Hidden) DecodeHiddenStatesBatch(object? raw, int expectedBatch, int expectedHidden)
+    {
+        float[] flat;
+        int batch, seq, hidden;
+        if (raw is Tensor<float> f32)
+        {
+            if (f32.Dimensions.Length != 3 || f32.Dimensions[0] != expectedBatch)
+                throw new InvalidOperationException(
+                    $"Unexpected embedding tensor shape [{string.Join(",", f32.Dimensions.ToArray())}]: expected [{expectedBatch}, seq, hidden].");
+            batch = f32.Dimensions[0];
+            seq = f32.Dimensions[1];
+            hidden = f32.Dimensions[2];
+            flat = f32.ToArray();
+        }
+        else if (raw is Tensor<Half> f16)
+        {
+            if (f16.Dimensions.Length != 3 || f16.Dimensions[0] != expectedBatch)
+                throw new InvalidOperationException(
+                    $"Unexpected embedding tensor shape [{string.Join(",", f16.Dimensions.ToArray())}]: expected [{expectedBatch}, seq, hidden].");
+            batch = f16.Dimensions[0];
+            seq = f16.Dimensions[1];
+            hidden = f16.Dimensions[2];
+            var halves = f16.ToArray();
+            flat = new float[halves.Length];
+            for (var i = 0; i < halves.Length; i++) flat[i] = (float)halves[i];
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Unsupported embedding tensor type '{raw?.GetType().FullName ?? "null"}': expected float32 or float16.");
+        }
+        if (hidden != expectedHidden)
+            throw new InvalidOperationException(
+                $"Model hidden size {hidden} != provider dims {expectedHidden}: refusing to store misshaped vectors.");
+        if (flat.Length != batch * seq * hidden)
+            throw new InvalidOperationException("Embedding tensor storage length does not match its shape.");
+        return (flat, seq, hidden);
+    }
 
     /// <summary>
     /// f32/f16-agnostic decode of the model's last-hidden-state tensor
@@ -182,22 +321,26 @@ public sealed class OnnxEmbedder : IEmbeddingProvider, IDisposable
         return flat;
     }
 
-    /// <summary>Attention-masked mean pooling over [seq, hidden] storage.</summary>
-    internal static float[] MeanPool(float[] flat, long[] mask, int hidden)
+    /// <summary>Attention-masked mean pooling over one row of [batch, seq, hidden] storage.</summary>
+    internal static float[] MeanPoolRow(float[] flat, int flatOffset, long[] mask, int maskOffset, int seq, int hidden)
     {
-        var seq = mask.Length;
         var pooled = new float[hidden];
         double count = 0;
         for (var s = 0; s < seq; s++)
         {
-            if (mask[s] == 0) continue;
+            if (mask[maskOffset + s] == 0) continue;
             count += 1;
-            for (var h = 0; h < hidden; h++) pooled[h] += flat[s * hidden + h];
+            var idx = flatOffset + s * hidden;
+            for (var h = 0; h < hidden; h++) pooled[h] += flat[idx + h];
         }
         if (count < 1) return pooled;
         for (var h = 0; h < hidden; h++) pooled[h] = (float)(pooled[h] / count);
         return pooled;
     }
+
+    /// <summary>Attention-masked mean pooling of a single [seq, hidden] block.</summary>
+    internal static float[] MeanPool(float[] flat, long[] mask, int hidden)
+        => MeanPoolRow(flat, 0, mask, 0, mask.Length, hidden);
 
     public void Dispose()
     {

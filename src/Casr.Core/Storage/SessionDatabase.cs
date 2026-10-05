@@ -688,17 +688,40 @@ public class SessionDatabase : IDisposable
         var modelId = Search.TextEmbedder.ModelId;
         var dims = Search.TextEmbedder.Dims;
         var bundle = new EmbeddingBundle { SessionId = summary.SessionId, ModelId = modelId, Dims = dims };
-        var vectors = new List<(float[] Vector, int WeightHint)>(session.Messages.Count);
+
+        // Batch embeddings in bounded chunks: one inference per chunk on the neural
+        // provider (CPU or GPU) instead of one inference per message, which is where
+        // the throughput win comes from. Non-empty messages only (matching the write
+        // path); message text is capped at 5000 chars.
+        const int embedBatchSize = 32;
+        var eligible = new List<(int Index, string Text, int Hint)>(session.Messages.Count);
         foreach (var msg in session.Messages)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace(msg.Content)) continue;
             var text = msg.Content.Length > 5000 ? msg.Content.Substring(0, 5000) : msg.Content;
-            var vector = Search.TextEmbedder.Embed(text);
-            if (vector.Length != dims)
-                throw new InvalidOperationException($"Embedding provider '{modelId}' returned {vector.Length} dims; expected {dims}.");
-            bundle.MessageVectors[msg.Index] = vector;
-            vectors.Add((vector, msg.Content.Length));
+            eligible.Add((msg.Index, text, msg.Content.Length));
+        }
+
+        var messageVectors = new float[eligible.Count][];
+        for (var start = 0; start < eligible.Count; start += embedBatchSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(embedBatchSize, eligible.Count - start);
+            var chunk = new List<string?>(count);
+            for (var j = 0; j < count; j++) chunk.Add(eligible[start + j].Text);
+            var batch = Search.TextEmbedder.EmbedBatch(chunk);
+            for (var j = 0; j < count && j < batch.Length; j++) messageVectors[start + j] = batch[j];
+        }
+
+        var vectors = new List<(float[] Vector, int WeightHint)>(eligible.Count);
+        for (var i = 0; i < eligible.Count; i++)
+        {
+            var vector = messageVectors[i];
+            if (vector == null || vector.Length != dims)
+                throw new InvalidOperationException($"Embedding provider '{modelId}' returned {(vector?.Length ?? 0)} dims; expected {dims}.");
+            bundle.MessageVectors[eligible[i].Index] = vector;
+            vectors.Add((vector, eligible[i].Hint));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -769,6 +792,37 @@ public class SessionDatabase : IDisposable
             CasrLogger.Debug("DATABASE", $"Backfill check failed (assuming no backfill): {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Session ids that already carry at least one active-model message vector (either
+    /// float32 or float16 tag). Used by the model-switch re-embed to skip sessions that
+    /// are already migrated, so an interrupted re-embed truly resumes where it stopped.
+    /// </summary>
+    public HashSet<string> GetActiveModelSessionIds()
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var conn = CreateConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT DISTINCT session_id FROM message_embeddings
+                WHERE dims = @d AND (model = @m OR model = @mf16);";
+            cmd.Parameters.AddWithValue("@d", Search.TextEmbedder.Dims);
+            cmd.Parameters.AddWithValue("@m", Search.TextEmbedder.ModelId);
+            cmd.Parameters.AddWithValue("@mf16", Search.TextEmbedder.F16ModelId);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!reader.IsDBNull(0)) set.Add(reader.GetString(0));
+            }
+        }
+        catch (Exception ex)
+        {
+            CasrLogger.Debug("DATABASE", $"Active-model session list failed (treating all as pending): {ex.Message}");
+        }
+        return set;
     }
 
     /// <summary>

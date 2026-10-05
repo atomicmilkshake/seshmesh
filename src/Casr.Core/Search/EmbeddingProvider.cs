@@ -20,6 +20,18 @@ public interface IEmbeddingProvider
     string DisplayLabel { get; }
     float[] Embed(string? text);
     float[] EmbedSession(IEnumerable<(string? Content, int WeightHint)> parts);
+
+    /// <summary>
+    /// Embeds many texts in one pass (same order as the input; blank inputs yield zero
+    /// vectors). The default loops <see cref="Embed"/>; the ONNX provider overrides it
+    /// to run one batched inference — the actual CPU/GPU throughput win.
+    /// </summary>
+    float[][] EmbedBatch(IReadOnlyList<string?> texts)
+    {
+        var result = new float[texts.Count][];
+        for (var i = 0; i < texts.Count; i++) result[i] = Embed(texts[i]);
+        return result;
+    }
 }
 
 /// <summary>
@@ -125,21 +137,42 @@ public static class EmbeddingVectors
     {
         var list = parts.ToList();
         var dims = provider.Dims;
-        var acc = new double[dims];
-        double totalWeight = 0;
         var firstIdx = list.FindIndex(p => !string.IsNullOrWhiteSpace(p.Content));
         var lastIdx = list.FindLastIndex(p => !string.IsNullOrWhiteSpace(p.Content));
+
+        // Collect the non-empty parts and embed them in bounded batches (one inference
+        // per batch on the neural provider). Weighting below is unchanged.
+        var eligible = new List<(int Index, string Text, int Hint)>(list.Count);
         for (var pi = 0; pi < list.Count; pi++)
         {
             var (content, hint) = list[pi];
             if (string.IsNullOrWhiteSpace(content)) continue;
             var text = content.Length > 5000 ? content.Substring(0, 5000) : content;
-            var v = provider.Embed(text);
-            if (v.Length != dims) continue; // provider contract violation: skip, don't corrupt
+            eligible.Add((pi, text, hint));
+        }
+
+        const int embedBatchSize = 64;
+        var vectors = new float[eligible.Count][];
+        for (var start = 0; start < eligible.Count; start += embedBatchSize)
+        {
+            var count = Math.Min(embedBatchSize, eligible.Count - start);
+            var chunk = new List<string?>(count);
+            for (var j = 0; j < count; j++) chunk.Add(eligible[start + j].Text);
+            var batch = provider.EmbedBatch(chunk);
+            for (var j = 0; j < count && j < batch.Length; j++) vectors[start + j] = batch[j];
+        }
+
+        var acc = new double[dims];
+        double totalWeight = 0;
+        for (var i = 0; i < eligible.Count; i++)
+        {
+            var (index, text, hint) = eligible[i];
+            var v = vectors[i];
+            if (v == null || v.Length != dims) continue; // provider contract violation: skip, don't corrupt
             var w = Math.Max(1, Math.Min(500, hint > 0 ? hint : text.Length));
             var weight = Math.Log(1 + w);
-            if (pi == firstIdx || pi == lastIdx) weight *= 1.5;
-            for (var i = 0; i < dims; i++) acc[i] += v[i] * weight;
+            if (index == firstIdx || index == lastIdx) weight *= 1.5;
+            for (var d = 0; d < dims; d++) acc[d] += v[d] * weight;
             totalWeight += weight;
         }
         var outVec = new float[dims];

@@ -449,16 +449,70 @@ public class SearchNeuralTests : IDisposable
 
     // ---- Full ONNX inference: runs when the optional model is present, else an honest skip ----
 
+    private static void RunWithProductionModel(Action body)
+    {
+        // The class fixture redirects CASR_MODELS_DIR so the other tests never touch
+        // the production models dir. Model-gated tests resolve the real location instead.
+        var saved = Environment.GetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar);
+        Environment.SetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar, null);
+        try { body(); }
+        finally { Environment.SetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar, saved); }
+    }
+
+    [Fact]
+    public void HashingEmbedder_EmbedBatch_MatchesSingleEmbeddings()
+    {
+        IEmbeddingProvider provider = HashingEmbedder.Instance;
+        var texts = new[] { "alpha beta gamma", "", "delta epsilon zeta eta", "   " };
+
+        var batch = provider.EmbedBatch(texts);
+
+        Assert.Equal(texts.Length, batch.Length);
+        for (var i = 0; i < texts.Length; i++)
+        {
+            Assert.Equal(provider.Embed(texts[i]), batch[i]);
+        }
+    }
+
+    [RequiresEmbeddingModelFact]
+    public void OnnxEmbedder_EmbedBatch_MatchesSingleEmbeddings()
+    {
+        RunWithProductionModel(() =>
+        {
+            Assert.True(OnnxEmbedder.TryCreate(out var embedder, out var error), $"TryCreate failed: {error}");
+            using (embedder)
+            {
+                var texts = new[]
+                {
+                    "first text",
+                    "second, much longer text with more tokens and moar words again",
+                    "third"
+                };
+
+                var batch = embedder!.EmbedBatch(texts);
+                Assert.Equal(texts.Length, batch.Length);
+                for (var i = 0; i < texts.Length; i++)
+                {
+                    var single = embedder.Embed(texts[i]);
+                    Assert.Equal(single.Length, batch[i].Length);
+                    // Batched matmuls sum in a different order, so compare by cosine.
+                    Assert.InRange(EmbeddingVectors.Cosine(single, batch[i]), 0.99999, 1.00001);
+                }
+
+                // Blanks stay blank in place; a blank row never shifts its neighbours.
+                var mixed = embedder.EmbedBatch(new[] { "x", "   ", null, "y" });
+                Assert.Equal(384, mixed[0].Length);
+                Assert.All(mixed[1], f => Assert.Equal(0f, f));
+                Assert.All(mixed[2], f => Assert.Equal(0f, f));
+                Assert.InRange(EmbeddingVectors.Cosine(embedder.Embed("y"), mixed[3]), 0.99999, 1.00001);
+            }
+        });
+    }
+
     [RequiresEmbeddingModelFact]
     public void OnnxInference_EndToEndWhenModelPresent()
     {
-        // The class fixture redirects CASR_MODELS_DIR so the other tests never touch
-        // the production models dir. This test is gated on the production model being
-        // present (the attribute runs at discovery time, before fixtures), so restore
-        // the real resolution for its duration. Read-only: VerifyModelHash + TryCreate.
-        var savedModelsDir = Environment.GetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar);
-        Environment.SetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar, null);
-        try
+        RunWithProductionModel(() =>
         {
             // P1: ingress — model + vocab exist with real sizes; hash verifies.
             var modelInfo = new FileInfo(EmbeddingModelManager.ModelPath);
@@ -470,6 +524,9 @@ public class SearchNeuralTests : IDisposable
             // P2: create + embed through the production factory.
             Assert.True(OnnxEmbedder.TryCreate(out var embedder, out var error), $"TryCreate failed: {error}");
             Assert.NotNull(embedder);
+            // Provider must be explicit: CUDA on the GPU build (when CUDA 13 + cuDNN 9 resolve),
+            // CPU on the standard build or any machine without the CUDA stack.
+            Assert.Contains(embedder!.ProviderLabel, new[] { "CPU", "CUDA (GPU)" });
             using (embedder)
             {
                 var vec = embedder.Embed("the quick brown fox jumps over the lazy dog");
@@ -495,11 +552,7 @@ public class SearchNeuralTests : IDisposable
                 Assert.Equal(384, session.Length);
                 Assert.InRange(Norm(session), 0.999, 1.001);
             }
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar, savedModelsDir);
-        }
+        });
     }
 }
 
