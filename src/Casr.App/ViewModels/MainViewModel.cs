@@ -18,6 +18,7 @@ using Casr.Core.Export;
 using Casr.Core.Logging;
 using Casr.Core.Models;
 using Casr.Core.Providers;
+using Casr.Core.Search;
 using Casr.Core.Services;
 using Casr.Core.Storage;
 using Casr.App.Theming;
@@ -597,7 +598,47 @@ public class MainViewModel : ViewModelBase, IDisposable
     public string EngineTooltip => "Hybrid = keyword+semantic fused · Keyword = FTS5 stemmed prefix · " +
         "Keyword+ = raw MATCH (phrases, OR, NEAR)" +
         (IsRawFtsAvailable ? "" : " (unavailable in this build — disabled)") +
-        " · Exact = literal substring · Regex = .NET pattern · Semantic = on-device vectors";
+        " · Exact = literal substring · Regex = .NET pattern · Semantic = on-device vectors" +
+        (TextEmbedder.IsNeuralActive ? " (MiniLM neural)" : " (offline keyword embedder)");
+
+    // ---- Neural embeddings (opt-in ONNX MiniLM) ----
+
+    /// <summary>True when the MiniLM model + vocab are present in the models directory.</summary>
+    public bool NeuralModelAvailable => EmbeddingModelManager.IsModelPresent;
+
+    /// <summary>
+    /// Persisted opt-in (settings.json). Flipping it applies the provider immediately:
+    /// enabling loads the model and re-embeds the transcript index (cancellable,
+    /// resumable); disabling returns to the offline embedder for the next scan.
+    /// </summary>
+    public bool NeuralEmbeddingsEnabled
+    {
+        get => UserSettings.Default.NeuralEmbeddings;
+        set
+        {
+            if (UserSettings.Default.NeuralEmbeddings == value) return;
+            UserSettings.Default.NeuralEmbeddings = value;
+            UserSettings.Default.Save();
+            OnPropertyChanged();
+            _ = ApplyNeuralToggleAsync(value);
+        }
+    }
+
+    /// <summary>True when the neural provider is actually the active one.</summary>
+    public bool NeuralEmbeddingsActive => TextEmbedder.IsNeuralActive;
+
+    /// <summary>The toggle is inert while a scan/index owns the embedding provider.</summary>
+    public bool CanToggleNeural => NeuralModelAvailable && !IsScanning && !IsIndexing;
+
+    public string NeuralStatusText => TextEmbedder.IsNeuralActive
+        ? "🧠 Neural on"
+        : NeuralModelAvailable ? "🧠 Neural" : "🧠 Neural (no model)";
+
+    public string NeuralTooltip => !NeuralModelAvailable
+        ? "MiniLM model not downloaded. Run scripts\\Download-EmbeddingModel.ps1, restart SeshMesh, then enable this."
+        : TextEmbedder.IsNeuralActive
+            ? "Neural semantic search is active (MiniLM, 384-dim ONNX). Uncheck to return to the offline keyword embedder."
+            : "Enable neural semantic search (MiniLM via ONNX). Enabling re-embeds the transcript index for the new model; the re-embed is cancellable and resumes on later scans.";
 
     /// <summary>Saved-search names from UserSettings (sorted); picking one applies it.</summary>
     public ObservableCollection<string> SavedSearchNames => _savedSearchNames;
@@ -684,6 +725,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(IndexButtonLabel));
                 OnPropertyChanged(nameof(IndexButtonTooltip));
                 OnPropertyChanged(nameof(IsDeterminateProgress));
+                OnPropertyChanged(nameof(CanToggleNeural));
                 OnPropertyChanged(nameof(IsEmptyResultState));
                 SafeInvalidateRequerySuggested();
             }
@@ -908,6 +950,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(IsScanOrIndexing));
                 OnPropertyChanged(nameof(IsDeterminateProgress));
                 OnPropertyChanged(nameof(IsEmptyResultState));
+                OnPropertyChanged(nameof(CanToggleNeural));
                 SafeInvalidateRequerySuggested();
             }
         }
@@ -1185,6 +1228,23 @@ public class MainViewModel : ViewModelBase, IDisposable
                 }
             }
 
+            // Persisted neural opt-in: swap the embedding provider off the UI thread
+            // before the first index so vectors are written for the right model.
+            if (UserSettings.Default.NeuralEmbeddings)
+            {
+                string? neuralError = null;
+                var active = await Task.Run(() =>
+                {
+                    if (!EmbeddingModelManager.IsModelPresent) return false;
+                    return TextEmbedder.IsNeuralActive || TextEmbedder.TryEnableNeural(out neuralError);
+                });
+                RefreshNeuralProperties();
+                if (active)
+                    CasrLogger.Info("NEURAL", $"Neural embeddings active at startup ({EmbeddingModelManager.ModelPath})");
+                else
+                    CasrLogger.Warn("NEURAL", $"Neural embeddings requested but unavailable: {neuralError ?? "model not downloaded"}");
+            }
+
             // 2. Run streaming discovery across active providers
             await ScanSessionsAsync();
         }
@@ -1359,6 +1419,74 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             CasrLogger.Warn("MAIN_VM", $"Failed to refresh provider install badges: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Applies the neural embedding opt-in: loads the ONNX model off the UI thread on
+    /// enable and re-embeds the transcript index; restores the offline embedder on
+    /// disable (the next scan re-embeds for it). Never throws to the dispatcher.
+    /// </summary>
+    private async Task ApplyNeuralToggleAsync(bool enable)
+    {
+        try
+        {
+            if (IsScanning || IsIndexing)
+            {
+                // The toggle is disabled while busy, but a programmatic flip must not race the index.
+                StatusMessage = "Wait for the current scan/index to finish before switching embeddings.";
+                return;
+            }
+
+            if (!enable)
+            {
+                TextEmbedder.ResetToDefault();
+                CasrLogger.Info("NEURAL", "Neural embeddings disabled; the next scan re-embeds transcripts with the offline embedder.");
+                StatusMessage = "Neural embeddings off — the next scan re-embeds transcripts with the offline embedder.";
+                RefreshNeuralProperties();
+                return;
+            }
+
+            StatusMessage = "Loading MiniLM model…";
+            CasrLogger.Info("NEURAL", "Enabling neural embeddings (ONNX MiniLM)");
+            string? error = null;
+            var ok = await Task.Run(() => TextEmbedder.TryEnableNeural(out error));
+            if (!ok)
+            {
+                UserSettings.Default.NeuralEmbeddings = false;
+                UserSettings.Default.Save();
+                OnPropertyChanged(nameof(NeuralEmbeddingsEnabled));
+                RefreshNeuralProperties();
+                CasrLogger.Warn("NEURAL", $"Neural embeddings unavailable: {error}");
+                MessageBox.Show("Neural embeddings could not start:\n\n" + (error ?? "unknown error"),
+                    "Neural Embeddings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            RefreshNeuralProperties();
+            CasrLogger.Info("NEURAL", $"Neural embeddings active ({EmbeddingModelManager.ModelPath}); re-embedding transcript index");
+            await RebuildContentIndexAsync();
+        }
+        catch (Exception ex)
+        {
+            CasrLogger.Error("NEURAL", "Neural embedding toggle failed", ex);
+            StatusMessage = $"Neural embeddings failed: {ex.Message}";
+        }
+        finally
+        {
+            RefreshNeuralProperties();
+        }
+    }
+
+    private void RefreshNeuralProperties()
+    {
+        OnPropertyChanged(nameof(NeuralModelAvailable));
+        OnPropertyChanged(nameof(NeuralEmbeddingsEnabled));
+        OnPropertyChanged(nameof(NeuralEmbeddingsActive));
+        OnPropertyChanged(nameof(CanToggleNeural));
+        OnPropertyChanged(nameof(NeuralStatusText));
+        OnPropertyChanged(nameof(NeuralTooltip));
+        OnPropertyChanged(nameof(EngineTooltip));
+        SafeInvalidateRequerySuggested();
     }
 
     public async Task RebuildOrCancelIndexAsync()

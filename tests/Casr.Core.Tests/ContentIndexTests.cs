@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Casr.Core.Configuration;
 using Casr.Core.Models;
 using Casr.Core.Providers;
+using Casr.Core.Search;
 using Casr.Core.Services;
 using Casr.Core.Storage;
 using Xunit;
@@ -315,6 +316,18 @@ public class ContentIndexTests : IDisposable
         public IReadOnlyList<(string SessionId, string Path)>? ListSessions() => null;
     }
 
+    /// <summary>Same offline math as the default provider, different ModelId — simulates a provider switch.</summary>
+    private sealed class RenamedEmbedder : IEmbeddingProvider
+    {
+        public RenamedEmbedder(string modelId) { ModelId = modelId; }
+
+        public string ModelId { get; }
+        public int Dims => HashingEmbedder.Instance.Dims;
+        public string DisplayLabel => "test-renamed";
+        public float[] Embed(string? text) => HashingEmbedder.Instance.Embed(text);
+        public float[] EmbedSession(IEnumerable<(string? Content, int WeightHint)> parts) => HashingEmbedder.Instance.EmbedSession(parts);
+    }
+
     private sealed class SyncProgress : IProgress<ScanProgress>
     {
         public readonly List<ScanProgress> Beats = new();
@@ -360,6 +373,44 @@ public class ContentIndexTests : IDisposable
         Assert.All(beats, b => Assert.Equal(3, b.ProviderTotal));
         Assert.Equal(new[] { 0, 1, 2, 3 }, beats.Take(4).Select(b => b.ProviderCompleted));
         Assert.All(beats, b => Assert.Equal("Index", b.CurrentProvider));
+    }
+
+    [Fact]
+    public async Task EnsureContentIndex_ModelSwitch_ReembedsAllSessions()
+    {
+        using var db = new SessionDatabase(Path.Combine(_tempDir, "p_model.db"));
+        var stub = new StubProvider();
+        var svc = StubService(db, stub, "p_model_settings.json");
+        var sessions = StubSessions(_tempDir, 3);
+
+        await svc.EnsureContentIndexAsync(sessions, new SyncProgress());
+        Assert.Equal(3, stub.ReadCalls);
+        Assert.False(db.NeedsModelReembed());
+
+        // Simulate the user opting into a different embedding provider (hashing -> neural).
+        TextEmbedder.SetProvider(new RenamedEmbedder("hashing-trigram-v1-test-renamed"));
+        try
+        {
+            Assert.True(db.NeedsModelReembed());
+
+            var progress = new SyncProgress();
+            var (indexed, skipped, errors) = await svc.EnsureContentIndexAsync(sessions, progress);
+
+            Assert.Equal(3, indexed);
+            Assert.Equal(0, skipped);
+            Assert.Equal(0, errors);
+            Assert.Equal(6, stub.ReadCalls); // model switch forced a re-read despite unchanged fingerprints
+            Assert.False(db.NeedsModelReembed());
+            Assert.Contains(progress.Beats, b => b.Phase == "indexing");
+        }
+        finally
+        {
+            TextEmbedder.ResetToDefault();
+        }
+
+        // The post-switch rows carry the renamed model, so the default hashing
+        // provider now needs its own one-time re-embed again.
+        Assert.True(db.NeedsModelReembed());
     }
 
     [Fact]

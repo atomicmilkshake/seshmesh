@@ -577,11 +577,17 @@ public class SessionDiscoveryService
         var backfill = !force && _database.NeedsMessageEmbeddingBackfill();
         if (backfill)
             CasrLogger.Info("DISCOVERY", "Backfilling per-message vectors for semantic attribution (one-time)");
+        // Model switch (e.g. hashing -> neural MiniLM): sessions that only carry
+        // foreign-model vectors must be re-read and re-embedded once. Resumable —
+        // a session that already has an active-model vector is skipped next run.
+        var modelSwitch = !force && !backfill && _database.NeedsModelReembed();
+        if (modelSwitch)
+            CasrLogger.Info("DISCOVERY", $"Embedding model changed to '{Search.TextEmbedder.ModelId}': re-embedding indexed sessions");
         var pending = new List<SessionSummary>(sessions.Count);
         foreach (var s in sessions)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!force && !backfill && states.TryGetValue(s.SessionId, out var st) &&
+            if (!force && !backfill && !modelSwitch && states.TryGetValue(s.SessionId, out var st) &&
                 st.FileSize == s.FileSizeBytes && st.MessagesCount == s.MessagesCount &&
                 st.LastActiveMs == ToLastActiveMs(s))
             {

@@ -770,6 +770,40 @@ public class SessionDatabase : IDisposable
             return false;
         }
     }
+
+    /// <summary>
+    /// True when indexed sessions carry embeddings but not for the ACTIVE embedding
+    /// model (a provider switch happened, e.g. hashing → neural): those sessions must
+    /// be re-read and re-embedded once. A session counts as re-embedded as soon as it
+    /// has at least one active-model vector, so a cancelled re-embed resumes on the
+    /// next index run. Old foreign-model rows never match the SQL prefilter and are
+    /// replaced per session when that session is re-indexed.
+    /// </summary>
+    public bool NeedsModelReembed()
+    {
+        try
+        {
+            using var conn = CreateConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                  (SELECT COUNT(DISTINCT session_id) FROM message_embeddings WHERE dims = @d AND (model = @m OR model = @mf16)),
+                  (SELECT COUNT(DISTINCT session_id) FROM message_embeddings);";
+            cmd.Parameters.AddWithValue("@d", Search.TextEmbedder.Dims);
+            cmd.Parameters.AddWithValue("@m", Search.TextEmbedder.ModelId);
+            cmd.Parameters.AddWithValue("@mf16", Search.TextEmbedder.F16ModelId);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return false;
+            var activeSessions = reader.GetInt64(0);
+            var anySessions = reader.GetInt64(1);
+            return anySessions > 0 && activeSessions < anySessions;
+        }
+        catch (Exception ex)
+        {
+            CasrLogger.Debug("DATABASE", $"Model re-embed check failed (assuming no re-embed): {ex.Message}");
+            return false;
+        }
+    }
     /// <summary>
     /// Incremental state: session_id → (fileSize, messagesCount, lastActiveMs, contentHash)
     /// at index time. Session ids are case-sensitive (Ordinal): providers mint ids whose

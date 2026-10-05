@@ -716,6 +716,11 @@
                         <TextBlock Text="📄 Export results" FontSize="11"/>
                     </Button>
                 </StackPanel>
+                <ToggleButton Grid.Column="4" IsChecked="{Binding NeuralEmbeddingsEnabled, Mode=TwoWay}" IsEnabled="{Binding CanToggleNeural}"
+                              Style="{StaticResource SecondaryToggleButtonStyle}" Height="24" Padding="10,0" Margin="10,0,0,0"
+                              ToolTip="{Binding NeuralTooltip}" AutomationProperties.Name="Neural embeddings">
+                    <TextBlock Text="{Binding NeuralStatusText}" FontSize="11" FontWeight="SemiBold"/>
+                </ToggleButton>
                 <TextBlock Grid.Column="5" Text="{Binding IndexCoverageText}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="10.5" TextTrimming="CharacterEllipsis"
                            ToolTip="How many conversations have transcripts + vectors in the local database"/>
             </Grid>

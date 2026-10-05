@@ -447,52 +447,75 @@ public class SearchNeuralTests : IDisposable
         Assert.InRange(TextEmbedder.Cosine(qv, backF16), 0.99, 1.001);
     }
 
-    // ---- Full ONNX inference: runs only with a real model, else an honest skip ----
+    // ---- Full ONNX inference: runs when the optional model is present, else an honest skip ----
 
-    // Static skip (repo convention, cf. the quarantined backup test): the pinned
-    // test runner predates xUnit dynamic skips and reports them as failures, so a
-    // conditional skip would be a fake result either way. The absent-model path is
-    // covered by passing tests above; remove this Skip locally after running
-    // scripts/Download-EmbeddingModel.ps1 to exercise the real inference path.
-    // Skipped gracefully with reason when runtime/model absent — never a fake pass.
-    [Fact(Skip = "Requires the downloaded MiniLM model (scripts/Download-EmbeddingModel.ps1) " +
-        "and a loadable ONNX native runtime; skipped until the model is present.")]
+    [RequiresEmbeddingModelFact]
     public void OnnxInference_EndToEndWhenModelPresent()
     {
-        // P1: ingress — model + vocab exist with real sizes; hash verifies.
-        var modelInfo = new FileInfo(EmbeddingModelManager.ModelPath);
-        var vocabInfo = new FileInfo(EmbeddingModelManager.VocabPath);
-        Assert.True(modelInfo.Length > 10_000_000);
-        Assert.True(vocabInfo.Length > 100_000);
-        Assert.True(EmbeddingModelManager.TryEnsureReady(out _));
-
-        // P2: create + embed through the production factory.
-        Assert.True(OnnxEmbedder.TryCreate(out var embedder, out var error), $"TryCreate failed: {error}");
-        Assert.NotNull(embedder);
-        using (embedder)
+        // The class fixture redirects CASR_MODELS_DIR so the other tests never touch
+        // the production models dir. This test is gated on the production model being
+        // present (the attribute runs at discovery time, before fixtures), so restore
+        // the real resolution for its duration. Read-only: VerifyModelHash + TryCreate.
+        var savedModelsDir = Environment.GetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar);
+        Environment.SetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar, null);
+        try
         {
-            var vec = embedder.Embed("the quick brown fox jumps over the lazy dog");
+            // P1: ingress — model + vocab exist with real sizes; hash verifies.
+            var modelInfo = new FileInfo(EmbeddingModelManager.ModelPath);
+            var vocabInfo = new FileInfo(EmbeddingModelManager.VocabPath);
+            Assert.True(modelInfo.Length > 10_000_000);
+            Assert.True(vocabInfo.Length > 100_000);
+            Assert.True(EmbeddingModelManager.TryEnsureReady(out _));
 
-            // P3: intermediate — 384 dims, finite, normalized.
-            Assert.Equal(384, vec.Length);
-            Assert.All(vec, x => Assert.True(float.IsFinite(x)));
-            Assert.InRange(Norm(vec), 0.999, 1.001);
-
-            // P4: independent check — bytes on disk decode back identically.
-            var bytes = EmbeddingVectors.ToBytes(vec);
-            Assert.Equal(384 * 4, bytes.Length);
-            Assert.Equal(vec, EmbeddingVectors.FromBytes(bytes, 384));
-
-            // P5: round-trip quality — deterministic, self-similar, session path works.
-            var again = embedder.Embed("the quick brown fox jumps over the lazy dog");
-            Assert.Equal(vec, again);
-            Assert.InRange(EmbeddingVectors.Cosine(vec, again), 0.999, 1.001);
-            var session = embedder.EmbedSession(new List<(string?, int)>
+            // P2: create + embed through the production factory.
+            Assert.True(OnnxEmbedder.TryCreate(out var embedder, out var error), $"TryCreate failed: {error}");
+            Assert.NotNull(embedder);
+            using (embedder)
             {
-                ("first message", 10), ("second message", 10),
-            });
-            Assert.Equal(384, session.Length);
-            Assert.InRange(Norm(session), 0.999, 1.001);
+                var vec = embedder.Embed("the quick brown fox jumps over the lazy dog");
+
+                // P3: intermediate — 384 dims, finite, normalized.
+                Assert.Equal(384, vec.Length);
+                Assert.All(vec, x => Assert.True(float.IsFinite(x)));
+                Assert.InRange(Norm(vec), 0.999, 1.001);
+
+                // P4: independent check — bytes on disk decode back identically.
+                var bytes = EmbeddingVectors.ToBytes(vec);
+                Assert.Equal(384 * 4, bytes.Length);
+                Assert.Equal(vec, EmbeddingVectors.FromBytes(bytes, 384));
+
+                // P5: round-trip quality — deterministic, self-similar, session path works.
+                var again = embedder.Embed("the quick brown fox jumps over the lazy dog");
+                Assert.Equal(vec, again);
+                Assert.InRange(EmbeddingVectors.Cosine(vec, again), 0.999, 1.001);
+                var session = embedder.EmbedSession(new List<(string?, int)>
+                {
+                    ("first message", 10), ("second message", 10),
+                });
+                Assert.Equal(384, session.Length);
+                Assert.InRange(Norm(session), 0.999, 1.001);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(EmbeddingModelManager.ModelsDirEnvVar, savedModelsDir);
+        }
+    }
+}
+
+/// <summary>
+/// Runs the ONNX end-to-end test only when the optional MiniLM model + vocab are
+/// present; otherwise the test is skipped with a reason at discovery time (xUnit 2
+/// has no runtime skip). Never a fake pass: absent model = reported skip.
+/// </summary>
+public sealed class RequiresEmbeddingModelFactAttribute : FactAttribute
+{
+    public RequiresEmbeddingModelFactAttribute()
+    {
+        if (!EmbeddingModelManager.IsModelPresent)
+        {
+            Skip = "Requires the downloaded MiniLM model (scripts/Download-EmbeddingModel.ps1); " +
+                   "the model is optional and not bundled.";
         }
     }
 }

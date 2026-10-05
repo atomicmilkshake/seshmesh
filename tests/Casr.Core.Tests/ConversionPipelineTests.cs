@@ -652,4 +652,17 @@ public class UserSettingsConversionTests : IDisposable
         Assert.Equal(0, settings.ConversionMaxContextTokens);
         Assert.Equal(1_000_000, settings.ConversionMaxToolOutput);
     }
+
+    [Fact]
+    public void NeuralEmbeddingsSetting_DefaultOff_AndRoundTrips()
+    {
+        var settings = UserSettings.Load(_path);
+        Assert.False(settings.NeuralEmbeddings);
+
+        settings.NeuralEmbeddings = true;
+        Assert.True(settings.Save(_path));
+
+        var reloaded = UserSettings.Load(_path);
+        Assert.True(reloaded.NeuralEmbeddings);
+    }
 }

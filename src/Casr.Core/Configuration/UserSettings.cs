@@ -65,6 +65,14 @@ public class UserSettings
     public int ConversionMaxContextTokens { get; set; } = 200_000;
     public int ConversionMaxToolOutput { get; set; } = 4_000;
 
+    /// <summary>
+    /// Opt-in ONNX MiniLM neural embeddings for deep search. Off by default: the
+    /// bundled hashing/trigram embedder is the offline zero-dependency default.
+    /// Toggling in the app re-embeds the transcript index for the new model
+    /// (resumable across scans). Additive block; older settings.json defaults to off.
+    /// </summary>
+    public bool NeuralEmbeddings { get; set; } = false;
+
     public bool IncludeSubagents { get; set; } = false;
     public string? BackupDirectory { get; set; }
     public string? CustomDatabasePath { get; set; }
