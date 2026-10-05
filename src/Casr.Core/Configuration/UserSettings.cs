@@ -50,6 +50,21 @@ public class UserSettings
     /// key deserializes as false.
     /// </summary>
     public bool BypassApprovals { get; set; } = false;
+
+    /// <summary>
+    /// Conversion dialog preferences (casr-parity defaults: reasoning dropped for
+    /// cross-agent handoffs, ~200k-token history budget, 4k tool-output cap, and
+    /// read-back verification on). Additive block: older settings.json files
+    /// deserialize the defaults. <see cref="ConversionPreviewEnabled"/> controls
+    /// whether Resume-With opens the preview dialog before converting.
+    /// </summary>
+    public bool ConversionPreviewEnabled { get; set; } = true;
+    public bool ConversionEnrich { get; set; } = false;
+    public bool ConversionKeepReasoning { get; set; } = false;
+    public bool ConversionVerify { get; set; } = true;
+    public int ConversionMaxContextTokens { get; set; } = 200_000;
+    public int ConversionMaxToolOutput { get; set; } = 4_000;
+
     public bool IncludeSubagents { get; set; } = false;
     public string? BackupDirectory { get; set; }
     public string? CustomDatabasePath { get; set; }
@@ -213,6 +228,12 @@ public class UserSettings
             .Take(MaxSearchHistoryEntries)
             .ToList();
         foreach (var h in settings.SearchHistory) h.Normalize();
+
+        // Conversion preferences: clamp hand-edited or corrupted numeric values.
+        if (settings.ConversionMaxContextTokens < 0) settings.ConversionMaxContextTokens = 0;
+        if (settings.ConversionMaxToolOutput < 0) settings.ConversionMaxToolOutput = 0;
+        if (settings.ConversionMaxContextTokens > 2_000_000) settings.ConversionMaxContextTokens = 2_000_000;
+        if (settings.ConversionMaxToolOutput > 1_000_000) settings.ConversionMaxToolOutput = 1_000_000;
     }
 
     /// <summary>

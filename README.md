@@ -28,6 +28,10 @@ Based on the core specification and Rosetta Stone architecture of Jeffrey Emanue
 
 2. **In-App Provider Management**:
    - Easily enable or disable specific coding agents directly from the `⚙ Providers` dropdown in the top bar.
+   - Each provider row shows live CLI detection (version or `Missing`) with the checked-path evidence as a
+     tooltip, plus a **↻ Refresh detection** button — the GUI analogue of `casr providers`.
+   - The same dropdown persists the **Preview before converting** choice: with it unchecked, Resume-With
+     converts and launches in one click using the saved conversion options.
    - Settings persist automatically across launches in `%LOCALAPPDATA%\Casr\settings.json`.
     - Fresh installs enable all eight providers. An existing `settings.json` keeps its
       explicit choices: a provider added by a later update stays disabled until you opt
@@ -73,11 +77,31 @@ Based on the core specification and Rosetta Stone architecture of Jeffrey Emanue
 6. **Interactive Session Inspector & Transcript Viewer**:
    - Split-pane layout with collapsible inspector.
    - **Transcript Preview Tab**: Formatted conversational bubbles with user prompts in distinct blue, assistant reasoning in clean cards, and tool calls in tagged badges. Large transcripts are windowed and virtualized.
-   - **Session Details Tab**: Session UUID, Workspace directory, Model name, Started At, Last Active At, Message counts, Tool counts, and File path.
+   - **Session Details Tab**: Session UUID, Workspace directory, Git repository + branch (resolved read-only from the workspace's `.git` — the `casr --enrich-fs` analogue), Model name, Started At, Last Active At, Message counts, Tool counts, and File path.
 
 7. **One-Click Terminal Resumption**:
    - **Resume in Agent**: Immediately opens a terminal window configured to the session's workspace directory and fires up the exact resume command (e.g. `agy --conversation <uuid> --model "Gemini 3.1 Pro (High)"` or `openclaude --resume <id>`).
    - **Double-Click to Resume**: Double-click any row in the DataGrid to resume immediately.
+   - **Conversion Preview (dry-run)**: Resume-With opens a preview dialog first — the GUI form of
+     `casr resume --dry-run`. It shows the source → target providers, message/tool/token counts before
+     and after packaging, validation warnings, the git repository, the workspace override, and the
+     resume command, **without writing anything**. Options live in the same dialog:
+     - **Add conversion context (enrich)** — prepends a conversion notice plus a recent-conversation
+       snapshot, both marked as synthetic (`casr --enrich`).
+     - **Keep reasoning traces** — off by default; another agent's hidden reasoning is dropped.
+     - **Verify written session (read-back)** — re-reads the written session and compares it with what
+       was written before the terminal opens (`casr` verification step). A message-count mismatch is a
+       failure and the conversion is rolled back where safe; format folds (e.g. tool history rendered
+       as text) are reported as warnings.
+     - **Max context tokens / Max tool output** — context budget (oldest middle turns dropped first,
+       goal + recent turns preserved) and per-tool-result truncation, mirroring `--max-context-tokens`
+       and `--max-tool-output`.
+     - **Launch after converting** — uncheck to only write the converted session; the resume command
+       (with a `cd` hint) is copied to the clipboard instead of opening a terminal.
+     - **📋 Copy report** — copies the whole preview as a JSON report (the `casr --json` analogue).
+     Changing an option re-runs the dry run against the real source; the final write always re-reads the
+     source, so it can never be based on a stale preview. The choice of whether to show the dialog at all
+     persists via **⚙ Providers → Conversion → Preview before converting**.
    - **Terminal Flexibility**: Choose your preferred terminal in the top bar:
      - **Windows Terminal** (`wt.exe`)
      - **Alacritty** (`alacritty.exe`)
@@ -152,6 +176,16 @@ dotnet test Casr.sln
 Run the automated testing loop to verify compilation, test suite, GUI window responsiveness, memory bounds, UI automation controls, and clean shutdown across multiple iterations:
 ```pwsh
 pwsh -File .\scripts\test-loop.ps1 -Iterations 3
+```
+
+### Conversion Dialog UI Test
+Drives the actual Release app through the conversion preview: selects a conversation, opens
+Resume-With → Grok Build, asserts the dialog's stats/options/warnings/resume command/repository,
+toggles Enrich and confirms the dry run re-runs, uses the write-only path, and requires the app
+log to report `verification=passed` when the written session is read back. `GROK_HOME` is
+redirected to a temp directory for the run (never the live `~/.grok` store) and cleaned up after.
+```pwsh
+pwsh -File .\scripts\test-conversion-ui.ps1   # exit 0 = pass
 ```
 
 ---

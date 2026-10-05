@@ -1436,6 +1436,22 @@ public class OpenCodeProvider : IProvider
         int dropped = 0;
         foreach (var msg in session.Messages)
         {
+            // OpenCode 2.x has no system message kind in the import schema; carry
+            // system context as a user message so it survives instead of vanishing.
+            if (msg.Role == MessageRole.System)
+            {
+                messages.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = NewId("msg"),
+                    ["time"] = new Dictionary<string, object?> { ["created"] = msg.TimestampEpochMs ?? nowMs },
+                    ["type"] = "user",
+                    ["text"] = msg.Content ?? string.Empty,
+                    ["files"] = new List<object>(),
+                    ["agents"] = new List<object>()
+                });
+                continue;
+            }
+
             if (msg.Role != MessageRole.User && msg.Role != MessageRole.Assistant)
             {
                 dropped++;
@@ -1696,6 +1712,20 @@ public class OpenCodeProvider : IProvider
     {
         return $"opencode -s {sessionId}";
     }
+
+    /// <summary>
+    /// OpenCode 1.x/2.x writes go through <c>opencode session import</c> into its
+    /// event-log DB (there is no file artifact to re-read); the resumer falls back
+    /// to <see cref="OwnsSession"/> to locate the imported session for verification.
+    /// </summary>
+    public string? ReadBackPath(WrittenSession written) => null;
+
+    /// <summary>
+    /// OpenCode's 2.x import folds Tool rows into assistant tool items and its event
+    /// log is the only read-back source, so read-back message counts legitimately
+    /// differ from the packaged canonical message count.
+    /// </summary>
+    public bool TolerantVerification => true;
 
     private class OpenCodePartRow
     {

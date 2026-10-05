@@ -1420,9 +1420,12 @@ public class AntigravityProvider : IProvider
             }
             else
             {
-                source = "SYSTEM";
-                type = "EPHEMERAL_MESSAGE";
-                transcriptContent = msg.Content ?? string.Empty;
+                // System/other turns: the reader skips SYSTEM/EPHEMERAL_MESSAGE rows as
+                // lifecycle bookkeeping, so carry them as user input (the closest
+                // readable role) instead of losing the content on read-back.
+                source = "USER_EXPLICIT";
+                type = "USER_INPUT";
+                transcriptContent = $"<USER_REQUEST>\n{msg.Content}\n</USER_REQUEST>";
             }
 
             var ts = msg.TimestampEpochMs.HasValue
@@ -2108,6 +2111,11 @@ public class AntigravityProvider : IProvider
     {
         return $"agy --conversation {sessionId} --model \"{RequiredModel}\"";
     }
+
+    /// <summary>Antigravity's transcript.jsonl is what agy feeds the model on resume.</summary>
+    public string? ReadBackPath(WrittenSession written)
+        => written.Paths.FirstOrDefault(p => p.EndsWith("transcript.jsonl", StringComparison.OrdinalIgnoreCase))
+           ?? written.Paths.FirstOrDefault();
 }
 
 public static class DateTimeExtensions

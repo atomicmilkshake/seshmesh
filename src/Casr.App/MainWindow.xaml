@@ -490,9 +490,20 @@
                                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12"/>
                                                         <TextBlock Text="{Binding CliAlias, StringFormat=' ({0})'}" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="11"/>
                                                     </StackPanel>
-                                                    <Border Grid.Column="1" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeHighlightBrush}" BorderThickness="1" CornerRadius="2" Padding="4,1"
-                                                            Visibility="{Binding IsInstalled, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock Text="Found" Foreground="{DynamicResource ThemeHighlightBrush}" FontSize="9.5" FontWeight="SemiBold"/>
+                                                    <Border Grid.Column="1" Background="{DynamicResource ThemeSurfaceBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="2" Padding="4,1"
+                                                            ToolTip="{Binding DetectionTooltip}">
+                                                        <TextBlock Text="{Binding DetectionSummary}" FontSize="9.5" FontWeight="SemiBold">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextSecondaryBrush}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsInstalled}" Value="True">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource ThemeHighlightBrush}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
                                                     </Border>
                                                 </Grid>
                                              </CheckBox>
@@ -508,6 +519,18 @@
                                         <TextBlock Text="Include internal subagents, tasks, and skill audits" FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}"/>
                                     </StackPanel>
                                 </CheckBox>
+
+                                <Separator Background="{DynamicResource ThemeBorderBrush}" Margin="0,10,0,8"/>
+                                <TextBlock Text="Conversion" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource ThemeTextPrimaryBrush}" Margin="0,0,0,4"/>
+                                <CheckBox IsChecked="{Binding ConversionPreviewEnabled, Mode=TwoWay}" Margin="0,4" Foreground="{DynamicResource ThemeTextPrimaryBrush}" VerticalContentAlignment="Center"
+                                          ToolTip="Show the dry-run conversion dialog (options, warnings, read-back verification) before Resume-With writes anything">
+                                    <StackPanel Margin="6,0,0,0">
+                                        <TextBlock Text="Preview before converting" FontWeight="SemiBold" FontSize="12"/>
+                                        <TextBlock Text="Open the dry-run dialog on Resume-With; uncheck for the one-click path." FontSize="11" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </CheckBox>
+                                <Button Content="↻ Refresh detection" Command="{Binding RefreshDetectionCommand}" Style="{StaticResource SecondaryButton}" Height="24" Padding="8,1" Margin="0,8,0,0"
+                                        ToolTip="Re-run CLI detection for every provider (version + evidence)"/>
                             </StackPanel>
                         </Border>
                     </Popup>
@@ -1543,6 +1566,15 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="Workspace Path:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
                                         <TextBox Grid.Column="1" Text="{Binding InspectedSession.Workspace, Mode=OneWay}" IsReadOnly="True" Background="Transparent" Foreground="{DynamicResource ThemeHighlightBrush}" BorderThickness="0" TextWrapping="Wrap"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,8" Visibility="{Binding InspectedGitRepo, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Repository:" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding InspectedRepoDisplay}" Foreground="{DynamicResource ThemeHighlightBrush}" ToolTip="{Binding InspectedRepoRoot}"/>
                                     </Grid>
 
                                     <Grid Margin="0,0,0,8">

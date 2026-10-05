@@ -13,6 +13,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Casr.Core.Configuration;
+using Casr.Core.Context.Pipeline;
 using Casr.Core.Export;
 using Casr.Core.Logging;
 using Casr.Core.Models;
@@ -46,29 +47,79 @@ public class ProviderToggleItem : ViewModelBase
     public bool IsInstalled
     {
         get => _isInstalled;
-        private set => SetProperty(ref _isInstalled, value);
+        private set
+        {
+            if (SetProperty(ref _isInstalled, value))
+            {
+                OnPropertyChanged(nameof(DetectionSummary));
+            }
+        }
     }
 
-    /// <summary>Re-runs CLI detection in the background so the "Found" badge updates without UI thread blocking.</summary>
+    private string? _version;
+    public string? Version
+    {
+        get => _version;
+        private set
+        {
+            if (SetProperty(ref _version, value)) OnPropertyChanged(nameof(DetectionSummary));
+        }
+    }
+
+    private string _evidence = string.Empty;
+    public string Evidence
+    {
+        get => _evidence;
+        private set => SetProperty(ref _evidence, value);
+    }
+
+    /// <summary>One-line detection state for the Providers popup: version, "Found", or "Missing".</summary>
+    public string DetectionSummary
+    {
+        get
+        {
+            if (!IsInstalled) return "Missing";
+            var v = Version?.Trim().TrimStart('v', 'V');
+            return string.IsNullOrWhiteSpace(v) ? "Found" : $"v{v}";
+        }
+    }
+
+    /// <summary>Detection evidence (checked paths) shown as a tooltip — casr `providers` parity.</summary>
+    public string DetectionTooltip =>
+        string.IsNullOrWhiteSpace(Evidence)
+            ? (IsInstalled ? $"{Name} detected" : $"{Name} not found")
+            : Evidence;
+
+    /// <summary>Re-runs CLI detection in the background so the badge/tooltip update without UI thread blocking.</summary>
     public async Task RefreshInstalledAsync()
     {
         try
         {
-            var installed = await Task.Run(() => _provider.Detect().Installed).ConfigureAwait(false);
+            var result = await Task.Run(() => _provider.Detect()).ConfigureAwait(false);
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher != null && !dispatcher.CheckAccess())
             {
-                await dispatcher.InvokeAsync(() => IsInstalled = installed);
+                await dispatcher.InvokeAsync(() => ApplyDetection(result));
             }
             else
             {
-                IsInstalled = installed;
+                ApplyDetection(result);
             }
         }
         catch (Exception ex)
         {
             Casr.Core.Logging.CasrLogger.Warn("MAIN_VM", $"Detect failed for provider {Slug}: {ex.Message}");
         }
+    }
+
+    private void ApplyDetection(DetectionResult result)
+    {
+        IsInstalled = result.Installed;
+        Version = result.Version;
+        Evidence = result.Evidence != null && result.Evidence.Count > 0
+            ? string.Join("\n", result.Evidence)
+            : string.Empty;
+        OnPropertyChanged(nameof(DetectionTooltip));
     }
 
     /// <summary>Synchronous facade for callers that just fire detection.</summary>
@@ -232,6 +283,11 @@ public class MainViewModel : ViewModelBase, IDisposable
         ExportSearchResultsCommand = new AsyncRelayCommand(async () => await ExportSearchResultsAsync(), () => !IsExporting, "export-search-results");
         SaveCurrentSearchCommand = new RelayCommand(SaveCurrentSearch, () => true);
         DeleteSavedSearchCommand = new RelayCommand(DeleteSavedSearch, () => true);
+        RefreshDetectionCommand = new RelayCommand(_ =>
+        {
+            foreach (var item in _providerToggles) item.RefreshInstalled();
+            SafeInvalidateRequerySuggested();
+        }, _ => true);
         ShowMoreTranscriptCommand = new RelayCommand(ExpandTranscriptWindow, () => TranscriptIsWindowed);
         FocusSearchCommand = new RelayCommand(() => FocusSearchRequested?.Invoke(this, EventArgs.Empty));
         ClearSearchCommand = new RelayCommand(() =>
@@ -425,6 +481,9 @@ public class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(BypassApprovalsHint));
         SafeInvalidateRequerySuggested();
         ResumeWithWorkspace = session.Workspace ?? string.Empty;
+        _inspectedGitRepo = null;
+        OnPropertyChanged(nameof(InspectedRepoDisplay));
+        _ = RefreshGitInfoAsync(session);
         RefreshSelectedSessionHits(scrollToFirst: false);
         _ = LoadSelectedSessionDetailsAsync(session);
         CasrLogger.Info("SEARCH_UX", $"Inspected library session: session_id={session.SessionId} provider={session.Provider}");
@@ -438,6 +497,9 @@ public class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(BypassApprovalsHint));
         SafeInvalidateRequerySuggested();
         ResumeWithWorkspace = item.Session.Workspace ?? string.Empty;
+        _inspectedGitRepo = null;
+        OnPropertyChanged(nameof(InspectedRepoDisplay));
+        _ = RefreshGitInfoAsync(item.Session);
         RefreshInspectedSessionHits(item.Session.SessionId, item.MessageIndex);
         _ = LoadSelectedSessionDetailsAsync(item.Session, item.MessageIndex);
         CasrLogger.Info("SEARCH_UX", $"Inspected search result: rank={item.Rank} session_id={item.SessionId} provider={item.Provider}");
@@ -448,6 +510,46 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         get => _resumeWithWorkspace;
         set => SetProperty(ref _resumeWithWorkspace, value);
+    }
+
+    /// <summary>
+    /// Show the conversion preview (dry-run) dialog before a Resume-With writes
+    /// anything. Persisted so the choice survives restarts.
+    /// </summary>
+    public bool ConversionPreviewEnabled
+    {
+        get => UserSettings.Default.ConversionPreviewEnabled;
+        set
+        {
+            if (UserSettings.Default.ConversionPreviewEnabled == value) return;
+            UserSettings.Default.ConversionPreviewEnabled = value;
+            UserSettings.Default.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    private GitRepoInfo? _inspectedGitRepo;
+
+    /// <summary>Git repository/branch for the inspected session's workspace (casr --enrich-fs analogue).</summary>
+    public GitRepoInfo? InspectedGitRepo => _inspectedGitRepo;
+    public string InspectedRepoDisplay => _inspectedGitRepo?.Display ?? "(not a git repository)";
+    public string InspectedRepoRoot => _inspectedGitRepo?.RepoRoot ?? string.Empty;
+
+    private async Task RefreshGitInfoAsync(SessionSummary summary)
+    {
+        try
+        {
+            var info = await Task.Run(() => GitInspector.TryResolve(summary.Workspace));
+            if (!ReferenceEquals(summary, InspectedSession)) return; // selection moved on
+            _inspectedGitRepo = info;
+            OnPropertyChanged(nameof(InspectedGitRepo));
+            OnPropertyChanged(nameof(InspectedRepoDisplay));
+            OnPropertyChanged(nameof(InspectedRepoRoot));
+        }
+        catch (Exception ex)
+        {
+            CasrLogger.Debug("MAIN_VM", $"Git enrichment failed for {summary.SessionId}: {ex.Message}");
+        }
     }
 
     public CanonicalSession? SelectedFullSession
@@ -996,6 +1098,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public ICommand ClearFiltersCommand { get; }
     public ICommand NextMatchCommand { get; }
     public ICommand PrevMatchCommand { get; }
+    public ICommand RefreshDetectionCommand { get; }
 
     private void InitializeProviderToggles()
     {
@@ -2806,6 +2909,125 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
         if (IsResuming) return;
 
+        var summary = BuildSummaryForResume();
+
+        if (!ConversionPreviewEnabled)
+        {
+            // Direct path: always converts+launches with the saved conversion options.
+            await ConvertAndLaunchAsync(summary, targetProviderSlug, BuildConversionOptions(), launch: true);
+            return;
+        }
+
+        await PreviewResumeWithAsync(summary, targetProviderSlug);
+    }
+
+    /// <summary>Builds the conversion options from the persisted dialog preferences (casr-parity defaults).</summary>
+    private static ConversionOptions BuildConversionOptions() => new()
+    {
+        Enrich = UserSettings.Default.ConversionEnrich,
+        KeepReasoning = UserSettings.Default.ConversionKeepReasoning,
+        Verify = UserSettings.Default.ConversionVerify,
+        MaxContextTokens = UserSettings.Default.ConversionMaxContextTokens,
+        MaxToolOutput = UserSettings.Default.ConversionMaxToolOutput,
+        Force = true
+    };
+
+    /// <summary>Clones the inspected summary so a workspace override never mutates the bound grid row.</summary>
+    private SessionSummary BuildSummaryForResume()
+    {
+        var inspected = InspectedSession!;
+        return CloneSummary(inspected, !string.IsNullOrWhiteSpace(ResumeWithWorkspace)
+            ? ResumeWithWorkspace.Trim()
+            : inspected.Workspace);
+    }
+
+    private static SessionSummary CloneSummary(SessionSummary source, string? workspace) => new()
+    {
+        SessionId = source.SessionId,
+        Provider = source.Provider,
+        ProviderDisplayName = source.ProviderDisplayName,
+        Title = source.Title,
+        NativeName = source.NativeName,
+        MessagesCount = source.MessagesCount,
+        Workspace = !string.IsNullOrWhiteSpace(workspace) ? workspace.Trim() : source.Workspace,
+        StartedAt = source.StartedAt,
+        LastActiveAt = source.LastActiveAt,
+        FileSizeBytes = source.FileSizeBytes,
+        ModelName = source.ModelName,
+        SourcePath = source.SourcePath,
+        ToolCallsCount = source.ToolCallsCount,
+        IsSubagent = source.IsSubagent
+    };
+
+    /// <summary>
+    /// Runs the dry-run preview (casr `resume --dry-run` analogue) and, if the user
+    /// confirms the dialog, executes the conversion with the chosen options.
+    /// </summary>
+    private async Task PreviewResumeWithAsync(SessionSummary summary, string targetProviderSlug)
+    {
+        var targetProvider = ProviderRegistry.Default.FindBySlug(targetProviderSlug) ??
+                             ProviderRegistry.Default.FindByAlias(targetProviderSlug);
+        var targetName = targetProvider?.Name ?? targetProviderSlug;
+        var options = BuildConversionOptions();
+
+        CasrLogger.Info("CONVERSION", $"Preparing preview: session={summary.SessionId} source={summary.Provider} target={targetProviderSlug} enrich={options.Enrich} keepReasoning={options.KeepReasoning} verify={options.Verify} maxTokens={options.MaxContextTokens} maxToolOutput={options.MaxToolOutput}");
+
+        ConversionPreview preview;
+        IsResuming = true;
+        var previewSw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            StatusMessage = $"Preparing conversion preview for {targetName}...";
+            preview = await Task.Run(() => _resumerService.PrepareConversion(summary, targetProviderSlug, options));
+            previewSw.Stop();
+            CasrLogger.Info("CONVERSION", $"Preview prepared in {previewSw.ElapsedMilliseconds} ms: messages {preview.SourceMessageCount}->{preview.PackagedMessageCount}, workspace={preview.Workspace}, git={preview.Git?.Display ?? "none"}");
+        }
+        catch (Exception ex)
+        {
+            CasrLogger.Error("RESUME_WITH", $"Failed to prepare conversion preview for {targetProviderSlug}", ex);
+            MessageBox.Show($"Failed to prepare the conversion preview:\n\n{ex.Message}", "Conversion Preview Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusMessage = "Conversion preview failed";
+            return;
+        }
+        finally
+        {
+            IsResuming = false;
+        }
+
+        var vm = new ConversionPreviewViewModel(
+            preview,
+            options,
+            (opts, ws) => Task.Run(() => _resumerService.PrepareConversion(CloneSummary(summary, ws), targetProviderSlug, opts)));
+
+        CasrLogger.Info("CONVERSION", $"Showing conversion preview dialog for session={summary.SessionId} target={targetProviderSlug}");
+        var dialog = new Views.ConversionPreviewWindow(vm);
+        if (Application.Current?.MainWindow != null)
+        {
+            dialog.Owner = Application.Current.MainWindow;
+        }
+
+        CasrLogger.Debug("CONVERSION", "Conversion dialog constructed; calling ShowDialog");
+        var dialogResult = dialog.ShowDialog();
+        CasrLogger.Debug("CONVERSION", $"Conversion dialog closed: result={dialogResult}");
+
+        if (dialogResult != true)
+        {
+            CasrLogger.Info("CONVERSION", $"Preview cancelled for session={summary.SessionId} target={targetProviderSlug}");
+            StatusMessage = "Conversion cancelled";
+            return;
+        }
+
+        CasrLogger.Info("CONVERSION", $"Preview confirmed: session={summary.SessionId} target={targetProviderSlug} launch={vm.LaunchAfter} packagedMessages={vm.PackagedMessageCount}");
+
+        // The popup's workspace override has been consumed by the dialog; reset it.
+        ResumeWithWorkspace = InspectedSession?.Workspace ?? string.Empty;
+
+        await ConvertAndLaunchAsync(CloneSummary(summary, vm.Workspace), targetProviderSlug, vm.CurrentOptions, vm.LaunchAfter);
+    }
+
+    private async Task ConvertAndLaunchAsync(SessionSummary summary, string targetProviderSlug, ConversionOptions options, bool launch)
+    {
+        if (IsResuming) return;
         IsResuming = true;
         try
         {
@@ -2816,44 +3038,44 @@ public class MainViewModel : ViewModelBase, IDisposable
             StatusMessage = $"Packaging context & preparing {targetName}...";
             var packageSw = System.Diagnostics.Stopwatch.StartNew();
 
-            // Clone the summary so a workspace override never mutates the instance the main grid binds to
-            var inspected = InspectedSession;
-            var sessionForResume = new SessionSummary
-            {
-                SessionId = inspected.SessionId,
-                Provider = inspected.Provider,
-                ProviderDisplayName = inspected.ProviderDisplayName,
-                Title = inspected.Title,
-                NativeName = inspected.NativeName,
-                MessagesCount = inspected.MessagesCount,
-                Workspace = !string.IsNullOrWhiteSpace(ResumeWithWorkspace)
-                    ? ResumeWithWorkspace.Trim()
-                    : inspected.Workspace,
-                StartedAt = inspected.StartedAt,
-                LastActiveAt = inspected.LastActiveAt,
-                FileSizeBytes = inspected.FileSizeBytes,
-                ModelName = inspected.ModelName,
-                SourcePath = inspected.SourcePath,
-                ToolCallsCount = inspected.ToolCallsCount,
-                IsSubagent = inspected.IsSubagent
-            };
+            // CrossResume re-reads the source and re-packages with the final options,
+            // so the write is never based on a stale preview payload.
+            var written = await Task.Run(() => _resumerService.CrossResume(summary, targetProviderSlug, options));
+            packageSw.Stop();
 
-            var written = await Task.Run(() => _resumerService.CrossResume(sessionForResume, targetProviderSlug, force: true));
+            var verifyLog = written.Verification == null
+                ? "none"
+                : written.Verification.Unverifiable
+                    ? "unverifiable (import-only)"
+                    : (written.Verification.Passed
+                        ? $"passed ({written.Verification.ReadBackMessages} messages read back)"
+                        : "FAILED");
+            CasrLogger.Info("CONVERSION", $"Converted: source={summary.SessionId} target={targetProviderSlug} newSession={written.SessionId} " +
+                $"fallback={written.IsFallbackLaunch} verification={verifyLog} paths=[{string.Join("; ", written.Paths)}] in {packageSw.ElapsedMilliseconds} ms");
 
-            // Reset the override to the session default for the next resume
-            ResumeWithWorkspace = inspected.Workspace ?? string.Empty;
             // Launch in the workspace the session was actually written/converted into —
             // not blindly the source workspace (the two differ when the dialog overrode it
             // or the writer resolved a fallback).
             var workspace = !string.IsNullOrWhiteSpace(written.Workspace)
                 ? written.Workspace
-                : inspected.Workspace;
+                : summary.Workspace;
 
             var resumeCmd = PrepareResumeCommand(targetProviderSlug, written.ResumeCommand);
+
+            if (!launch)
+            {
+                var clipboardText = BuildWorkspaceCommandClipboardText(resumeCmd, workspace);
+                var copied = await TrySetClipboardAsync(clipboardText);
+                CasrLogger.Info("CONVERSION", $"Convert-only: copied={copied} command={resumeCmd} workspace={workspace}");
+                StatusMessage = copied
+                    ? $"Converted with {targetName} — command copied (not launched): {resumeCmd}"
+                    : $"Converted with {targetName} (not launched): {resumeCmd}";
+                return;
+            }
+
             StatusMessage = $"Launching {targetName}...";
             CasrLogger.Info("RESUME_WITH", $"Resume With {targetProviderSlug}: {resumeCmd} in {workspace} (admin={RunAsAdmin})");
             var launchResult = await Task.Run(() => TerminalLauncher.Launch(resumeCmd, workspace, SelectedTerminal, RunAsAdmin));
-            packageSw.Stop();
             if (!launchResult.Success)
             {
                 // Nothing opened: say so instead of reporting a resume that never happened.
@@ -2870,6 +3092,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             var actualNote = launchResult.TerminalSubstituted || launchResult.CwdSubstituted
                 ? $" [via {launchResult.ActualTerminal} @ {launchResult.WorkingDirectory}]"
                 : $" ({launchResult.ActualTerminal})";
+            var verifyNote = VerificationSuffix(written);
 
             if (written.IsFallbackLaunch)
             {
@@ -2877,12 +3100,20 @@ public class MainViewModel : ViewModelBase, IDisposable
             }
             else if (written.Warnings.Count > 0)
             {
-                StatusMessage = $"Resumed with {targetName}{actualNote} (⚠ {string.Join("; ", written.Warnings)}){adminSuffix}{bypassSuffix}{elapsedNote}";
+                StatusMessage = $"Resumed with {targetName}{actualNote}{verifyNote} (⚠ {string.Join("; ", written.Warnings)}){adminSuffix}{bypassSuffix}{elapsedNote}";
             }
             else
             {
-                StatusMessage = $"Resumed with {targetName}{actualNote}{adminSuffix}{bypassSuffix}{elapsedNote}";
+                StatusMessage = $"Resumed with {targetName}{actualNote}{verifyNote}{adminSuffix}{bypassSuffix}{elapsedNote}";
             }
+        }
+        catch (SessionVerificationException vex)
+        {
+            CasrLogger.Error("RESUME_WITH", $"Write verification failed for {targetProviderSlug}", vex);
+            MessageBox.Show(
+                "The written session did not read back intact, so the conversion was rolled back.\n\n" + vex.Message,
+                "Conversion Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            StatusMessage = "Conversion rolled back — read-back verification failed";
         }
         catch (Exception ex)
         {
@@ -2893,6 +3124,45 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             IsResuming = false;
         }
+    }
+
+    private static string VerificationSuffix(WrittenSession written)
+    {
+        var v = written.Verification;
+        if (v == null) return string.Empty;
+        if (v.Unverifiable) return " · import-only (no read-back)";
+        return v.Passed ? $" · ✓ verified {v.ReadBackMessages} msg(s)" : " · ⚠ verification failed";
+    }
+
+    private static string BuildWorkspaceCommandClipboardText(string resumeCmd, string? workspace)
+    {
+        if (string.IsNullOrWhiteSpace(workspace) || resumeCmd.TrimStart().StartsWith("cd ", StringComparison.OrdinalIgnoreCase))
+        {
+            return resumeCmd;
+        }
+        return $"cd \"{workspace}\"\n{resumeCmd}";
+    }
+
+    private static async Task<bool> TrySetClipboardAsync(string text)
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                Clipboard.SetText(text);
+                return true;
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                await Task.Delay(50);
+            }
+            catch (Exception ex)
+            {
+                CasrLogger.Warn("MAIN_VM", $"Clipboard copy failed: {ex.Message}");
+                return false;
+            }
+        }
+        return false;
     }
 
     public async Task CopyResumeCommandAsync()

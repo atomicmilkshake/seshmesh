@@ -17,10 +17,17 @@ public class ContextPackager : IContextPackager
         return CanonicalContext.FromCanonicalSession(session);
     }
 
+    /// <summary>Legacy packaging (pre-conversion-dialog behavior), preserved for existing callers.</summary>
     public CanonicalSession Package(CanonicalSession source, HarnessCapabilities targetCapabilities)
+    {
+        return Package(source, targetCapabilities, ConversionOptions.Legacy);
+    }
+
+    public CanonicalSession Package(CanonicalSession source, HarnessCapabilities targetCapabilities, ConversionOptions options)
     {
         if (source == null) throw new ArgumentNullException(nameof(source));
         if (targetCapabilities == null) throw new ArgumentNullException(nameof(targetCapabilities));
+        options ??= ConversionOptions.Default;
 
         var context = Normalize(source);
         if (context.Messages.Count == 0)
@@ -28,8 +35,8 @@ public class ContextPackager : IContextPackager
             return source;
         }
 
-        // 1. Check token budget & perform compaction if needed
-        CompactIfNeeded(context, targetCapabilities);
+        // 1. Token budget & compaction (reasoning drop, tool truncation, turn dropping)
+        ApplyConversionBudget(context, targetCapabilities, options);
 
         // 2. Build packaged messages matching target tool style & thinking support
         var packagedMessages = new List<CanonicalMessage>();
@@ -47,7 +54,7 @@ public class ContextPackager : IContextPackager
             };
 
             var textContent = ctxMsg.GetTextContent();
-            var thinkingContent = ctxMsg.GetThinkingContent();
+            var thinkingContent = options.KeepReasoning ? ctxMsg.GetThinkingContent() : null;
 
             // Thinking handling
             if (!string.IsNullOrWhiteSpace(thinkingContent))
@@ -66,6 +73,13 @@ public class ContextPackager : IContextPackager
                         ? thinkingBlock
                         : $"{thinkingBlock}\n\n{textContent}";
                 }
+            }
+            else if (!options.KeepReasoning)
+            {
+                // Drop the source agent's hidden reasoning for cross-agent handoffs.
+                canMsg.Extra.Remove("thinking");
+                canMsg.Extra.Remove("reasoning");
+                canMsg.Extra.Remove("reasoning_content");
             }
 
             // Tool handling
@@ -157,6 +171,15 @@ public class ContextPackager : IContextPackager
             packagedMessages.Add(canMsg);
         }
 
+        // 3. Optional synthetic context enrichment (casr --enrich analogue): a
+        // conversion notice plus a recent-conversation snapshot, both marked so a
+        // later reader can tell them apart from the original transcript.
+        bool enriched = false;
+        if (options.Enrich && packagedMessages.Count > 0)
+        {
+            enriched = PrependEnrichmentMessages(packagedMessages, source, targetCapabilities.HarnessSlug) > 0;
+        }
+
         var result = new CanonicalSession
         {
             SessionId = source.SessionId,
@@ -171,7 +194,177 @@ public class ContextPackager : IContextPackager
             Messages = packagedMessages
         };
 
+        if (enriched)
+        {
+            result.Metadata["seshmesh_enrichment_applied"] = true;
+        }
+
         return result;
+    }
+
+    /// <summary>
+    /// Applies the conversion budget: drops hidden reasoning unless kept, truncates
+    /// oversized tool observations, then drops the oldest middle turns if the history
+    /// is still over the token cap (the original task message and the most recent
+    /// turns are preserved; tool call/result pairs stay within a turn so they are never
+    /// severed).
+    /// </summary>
+    private static void ApplyConversionBudget(CanonicalContext context, HarnessCapabilities target, ConversionOptions options)
+    {
+        // 1. Reasoning
+        if (!options.KeepReasoning)
+        {
+            foreach (var msg in context.Messages)
+            {
+                msg.Parts.RemoveAll(p => p is ThinkingPart);
+            }
+        }
+
+        // 2. Tool observations
+        if (options.MaxToolOutput > 0)
+        {
+            TruncateAllToolResults(context, options.MaxToolOutput);
+        }
+        else if (EstimateTokens(context) > target.TokenContextLimit)
+        {
+            // Legacy behavior: per-turn caps, only when the harness limit is exceeded.
+            CompactIfNeeded(context, target);
+        }
+
+        // 3. Token cap (turn dropping only when an explicit budget is set; legacy
+        //    MaxContextTokens == 0 keeps the harness limit as a truncation trigger).
+        if (options.MaxContextTokens > 0)
+        {
+            DropOldestTurns(context, options.MaxContextTokens, target.PreserveRecentTurnsCount);
+        }
+    }
+
+    private static void DropOldestTurns(CanonicalContext context, int tokenLimit, int preserveRecentTurns)
+    {
+        if (tokenLimit <= 0) return;
+
+        int protectedTurns = 1 + Math.Max(1, preserveRecentTurns);
+        while (context.Turns.Count > protectedTurns && EstimateTokens(context) > tokenLimit)
+        {
+            var drop = context.Turns[1];
+            foreach (var msg in drop.Messages)
+            {
+                context.Messages.Remove(msg);
+            }
+            context.Turns.RemoveAt(1);
+        }
+    }
+
+    private static int PrependEnrichmentMessages(List<CanonicalMessage> messages, CanonicalSession source, string targetSlug)
+    {
+        var sourceProvider = string.IsNullOrWhiteSpace(source.ProviderSlug) ? "unknown" : source.ProviderSlug;
+        var targetProvider = string.IsNullOrWhiteSpace(targetSlug) ? "unknown" : targetSlug;
+
+        long? firstTimestamp = messages
+            .Where(m => m.TimestampEpochMs.HasValue)
+            .Select(m => m.TimestampEpochMs!.Value)
+            .DefaultIfEmpty(0L)
+            .Min();
+        long? noticeTimestamp = firstTimestamp is > 0 ? firstTimestamp - 2 : null;
+        long? summaryTimestamp = noticeTimestamp.HasValue ? noticeTimestamp + 1 : null;
+
+        var noticeLines = new List<string>
+        {
+            "[seshmesh synthetic context]",
+            $"This session was originally created in {sourceProvider} and converted to {targetProvider} format by SeshMesh.",
+            $"Original session ID: {source.SessionId}.",
+            "Some provider-specific context may have been lost in conversion.",
+            $"Original message count: {messages.Count}."
+        };
+        if (!string.IsNullOrWhiteSpace(source.Workspace))
+        {
+            noticeLines.Add($"Workspace: {source.Workspace}");
+        }
+
+        var (summaryCount, summaryLines) = BuildRecentSummary(messages, 4, 180);
+
+        var notice = new CanonicalMessage
+        {
+            Index = 0,
+            Role = MessageRole.System,
+            Content = string.Join("\n", noticeLines),
+            TimestampEpochMs = noticeTimestamp,
+            Author = "seshmesh-enrichment",
+            Extra = new Dictionary<string, object?>
+            {
+                ["seshmesh_enrichment"] = true,
+                ["synthetic"] = true,
+                ["enrichment_type"] = "conversion_notice",
+                ["source_provider"] = sourceProvider,
+                ["target_provider"] = targetProvider,
+                ["source_session_id"] = source.SessionId
+            }
+        };
+
+        var summary = new CanonicalMessage
+        {
+            Index = 1,
+            Role = MessageRole.System,
+            Content = "[seshmesh synthetic context]\nRecent conversation snapshot (last " + summaryCount + " message(s)):\n" + summaryLines,
+            TimestampEpochMs = summaryTimestamp,
+            Author = "seshmesh-enrichment",
+            Extra = new Dictionary<string, object?>
+            {
+                ["seshmesh_enrichment"] = true,
+                ["synthetic"] = true,
+                ["enrichment_type"] = "recent_summary",
+                ["source_provider"] = sourceProvider,
+                ["target_provider"] = targetProvider,
+                ["source_session_id"] = source.SessionId,
+                ["summary_message_count"] = summaryCount
+            }
+        };
+
+        messages.Insert(0, summary);
+        messages.Insert(0, notice);
+
+        for (int i = 0; i < messages.Count; i++)
+        {
+            messages[i].Index = i;
+        }
+
+        return 2;
+    }
+
+    private static (int Count, string Text) BuildRecentSummary(List<CanonicalMessage> messages, int maxMessages, int maxCharsPerMessage)
+    {
+        int start = Math.Max(0, messages.Count - maxMessages);
+        var lines = new List<string>();
+        for (int i = start; i < messages.Count; i++)
+        {
+            var msg = messages[i];
+            lines.Add($"- {RoleLabel(msg.Role)}: {CompactSummaryText(msg.Content, maxCharsPerMessage)}");
+        }
+
+        if (lines.Count == 0)
+        {
+            lines.Add("- (no messages)");
+        }
+
+        return (lines.Count, string.Join("\n", lines));
+    }
+
+    private static string RoleLabel(MessageRole role) => role switch
+    {
+        MessageRole.User => "user",
+        MessageRole.Assistant => "assistant",
+        MessageRole.Tool => "tool",
+        MessageRole.System => "system",
+        _ => "other"
+    };
+
+    private static string CompactSummaryText(string? text, int maxChars)
+    {
+        var compact = string.Join(" ", (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (compact.Length == 0) return "[empty]";
+        if (compact.Length <= maxChars) return compact;
+        if (maxChars <= 3) return new string('.', maxChars);
+        return compact.Substring(0, maxChars - 3) + "...";
     }
 
     private static void CompactIfNeeded(CanonicalContext context, HarnessCapabilities target)
@@ -223,6 +416,7 @@ public class ContextPackager : IContextPackager
 
     private static void TruncateAllToolResults(CanonicalContext context, int maxChars)
     {
+        if (maxChars <= 0) return;
         foreach (var msg in context.Messages)
         {
             for (int p = 0; p < msg.Parts.Count; p++)
@@ -259,6 +453,26 @@ public class ContextPackager : IContextPackager
                         charCount += tr.Output?.Length ?? 0;
                         break;
                 }
+            }
+        }
+
+        return (int)Math.Ceiling(charCount / 4.0);
+    }
+
+    /// <summary>Estimates tokens of an already-packaged canonical session (post tool synthesis/enrichment).</summary>
+    public static int EstimateTokens(CanonicalSession session)
+    {
+        long charCount = 0;
+        foreach (var msg in session.Messages)
+        {
+            charCount += msg.Content?.Length ?? 0;
+            foreach (var tc in msg.ToolCalls)
+            {
+                charCount += (tc.Name?.Length ?? 0) + (tc.ArgumentsJson?.Length ?? 0);
+            }
+            foreach (var tr in msg.ToolResults)
+            {
+                charCount += tr.Content?.Length ?? 0;
             }
         }
 

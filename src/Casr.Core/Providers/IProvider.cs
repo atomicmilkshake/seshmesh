@@ -31,6 +31,12 @@ public class WrittenSession
 
     /// <summary>The workspace the resumed session was launched/written into, when known.</summary>
     public string? Workspace { get; set; }
+
+    /// <summary>
+    /// Read-back verification result, populated by SessionResumerService after a
+    /// cross-provider write. Null for same-provider resumes and fallback launches.
+    /// </summary>
+    public WriteVerification? Verification { get; set; }
 }
 
 /// <summary>
@@ -70,4 +76,19 @@ public interface IProvider
     WrittenSession WriteSession(CanonicalSession session, WriteOptions opts);
     string ResumeCommand(string sessionId, string? workspace = null);
     IReadOnlyList<(string SessionId, string Path)>? ListSessions();
+
+    /// <summary>
+    /// Path that <see cref="ReadSession"/> should re-read to verify a freshly written
+    /// session, or null when the provider writes through an import-only path (the
+    /// caller then falls back to <see cref="OwnsSession"/>).
+    /// </summary>
+    string? ReadBackPath(WrittenSession written)
+        => written.Paths.Count > 0 ? written.Paths[0] : null;
+
+    /// <summary>
+    /// True when the provider's native format intentionally folds or drops message rows
+    /// (e.g. OpenCode tool messages become assistant tool items), so a read-back count
+    /// difference is reported as a fidelity warning instead of failing verification.
+    /// </summary>
+    bool TolerantVerification => false;
 }
